@@ -1,0 +1,1383 @@
+{
+  "nodes": [
+    {
+      "lat": 43.0083389,
+      "lng": -7.55364084,
+      "name": "Lugo E.A."
+    },
+    {
+      "lat": 43.0100937,
+      "lng": -7.56868792,
+      "name": "Lugo - Avda. das Américas"
+    },
+    {
+      "lat": 43.0100708,
+      "lng": -7.56857109,
+      "name": "Lugo-Avda. das Américas"
+    },
+    {
+      "lat": 43.0297394,
+      "lng": -7.57063389,
+      "name": "Garabolos"
+    },
+    {
+      "lat": 43.0750084,
+      "lng": -7.60460806,
+      "name": "O Castro"
+    },
+    {
+      "lat": 43.0870476,
+      "lng": -7.60618019,
+      "name": "Robra"
+    },
+    {
+      "lat": 43.1019402,
+      "lng": -7.61389399,
+      "name": "Outeiro de Rei"
+    },
+    {
+      "lat": 43.1179504,
+      "lng": -7.61914492,
+      "name": "Cuartel Vello"
+    },
+    {
+      "lat": 43.119812,
+      "lng": -7.62628841,
+      "name": "Rábade"
+    },
+    {
+      "lat": 43.1425781,
+      "lng": -7.62904692,
+      "name": "Saavedra Estrada"
+    },
+    {
+      "lat": 43.1514702,
+      "lng": -7.63264513,
+      "name": "Saavedra Cruce"
+    },
+    {
+      "lat": 43.1592903,
+      "lng": -7.63579082,
+      "name": "Damil"
+    },
+    {
+      "lat": 43.1716309,
+      "lng": -7.63743019,
+      "name": "Peto"
+    },
+    {
+      "lat": 43.1796913,
+      "lng": -7.63997698,
+      "name": "Trobo"
+    },
+    {
+      "lat": 43.1868591,
+      "lng": -7.64230299,
+      "name": "Gaibor"
+    },
+    {
+      "lat": 43.1965599,
+      "lng": -7.64433098,
+      "name": "Morán-A Granxa"
+    },
+    {
+      "lat": 43.2106209,
+      "lng": -7.65294695,
+      "name": "Fontefría"
+    },
+    {
+      "lat": 43.2289505,
+      "lng": -7.66095686,
+      "name": "Lengua Dereita"
+    },
+    {
+      "lat": 43.2457809,
+      "lng": -7.66814423,
+      "name": "Parrocha"
+    },
+    {
+      "lat": 43.2542992,
+      "lng": -7.66969919,
+      "name": "Panchita"
+    },
+    {
+      "lat": 43.2612686,
+      "lng": -7.67093515,
+      "name": "Noche-San Martín"
+    },
+    {
+      "lat": 43.2811089,
+      "lng": -7.67576265,
+      "name": "Ventorro"
+    },
+    {
+      "lat": 43.2812691,
+      "lng": -7.67605782,
+      "name": "Ventorro"
+    },
+    {
+      "lat": 43.2906113,
+      "lng": -7.67937708,
+      "name": "Guadalupe"
+    },
+    {
+      "lat": 43.3024483,
+      "lng": -7.67521,
+      "name": "Vilalba E.A."
+    }
+  ],
+  "lines": [
+    {
+      "name": "",
+      "description": "L.8883",
+      "nodeIndicies": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        23,
+        24
+      ]
+    },
+    {
+      "name": "",
+      "description": "L.8883",
+      "nodeIndicies": [
+        24,
+        23,
+        22,
+        20,
+        19,
+        18,
+        17,
+        16,
+        15,
+        14,
+        13,
+        12,
+        11,
+        10,
+        9,
+        8,
+        7,
+        6,
+        5,
+        4,
+        3,
+        1,
+        0
+      ]
+    }
+  ],
+  "simpleSchedules": [
+    {
+      "operatingHours": {
+        "from": "09:00",
+        "to": "18:00"
+      },
+      "operatingDays": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "stops": [
+        {
+          "duration": "0.11:15:00",
+          "usertime": true
+        },
+        {
+          "duration": "0.11:16:40"
+        },
+        {
+          "duration": "0.11:19:39"
+        },
+        {
+          "duration": "0.11:27:26"
+        },
+        {
+          "duration": "0.11:29:16"
+        },
+        {
+          "duration": "0.11:31:40"
+        },
+        {
+          "duration": "0.11:34:09"
+        },
+        {
+          "duration": "0.11:35:00",
+          "usertime": true
+        },
+        {
+          "duration": "0.11:38:02"
+        },
+        {
+          "duration": "0.11:39:16"
+        },
+        {
+          "duration": "0.11:40:20"
+        },
+        {
+          "duration": "0.11:41:59"
+        },
+        {
+          "duration": "0.11:43:05"
+        },
+        {
+          "duration": "0.11:44:04"
+        },
+        {
+          "duration": "0.11:45:22"
+        },
+        {
+          "duration": "0.11:47:25"
+        },
+        {
+          "duration": "0.11:49:58"
+        },
+        {
+          "duration": "0.11:52:19"
+        },
+        {
+          "duration": "0.11:53:27"
+        },
+        {
+          "duration": "0.11:54:23"
+        },
+        {
+          "duration": "0.11:57:04"
+        },
+        {
+          "duration": "0.11:58:22"
+        },
+        {
+          "duration": "0.12:00:00",
+          "usertime": true
+        }
+      ],
+      "oneWay": false,
+      "frequency": 2,
+      "frequencyUnit": "day",
+      "returnUrl": "",
+      "seasonalInfo": {
+        "startMonth": null,
+        "endMonth": null
+      }
+    },
+    {
+      "operatingHours": {
+        "from": "09:00",
+        "to": "18:00"
+      },
+      "operatingDays": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "stops": [
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        },
+        {
+          "duration": "0.00:00:00"
+        }
+      ],
+      "oneWay": false,
+      "frequency": 2,
+      "frequencyUnit": "day",
+      "returnUrl": "",
+      "seasonalInfo": {
+        "startMonth": null,
+        "endMonth": null
+      }
+    }
+  ],
+  "useSimpleSchedules": false,
+  "detailedSchedules": {
+    "calendars": [
+      {
+        "name": "",
+        "startDate": "2025-10-06",
+        "endDate": "2026-04-06",
+        "operatingDays": [
+          "mon",
+          "tue",
+          "wed",
+          "thu",
+          "fri"
+        ],
+        "exceptions": {},
+        "isSeasonal": false
+      },
+      {
+        "name": "",
+        "startDate": "2025-10-06",
+        "endDate": "2026-04-06",
+        "operatingDays": [
+          "sat"
+        ],
+        "exceptions": {},
+        "isSeasonal": false
+      },
+      {
+        "name": "",
+        "startDate": "2025-10-06",
+        "endDate": "2026-04-06",
+        "operatingDays": [
+          "sun"
+        ],
+        "exceptions": {},
+        "isSeasonal": false
+      }
+    ],
+    "services": [
+      {
+        "lineIndex": 0,
+        "calendarIndex": 0,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.11:15:00"
+          },
+          {
+            "depart": "0.11:21:00",
+            "dropoffType": "unavailable"
+          },
+          {
+            "depart": "0.11:24:00"
+          },
+          {
+            "depart": "0.11:29:00"
+          },
+          {
+            "depart": "0.11:30:00"
+          },
+          {
+            "depart": "0.11:31:00"
+          },
+          {
+            "depart": "0.11:32:00"
+          },
+          {
+            "depart": "0.11:35:00"
+          },
+          {
+            "depart": "0.11:37:00"
+          },
+          {
+            "depart": "0.11:38:00"
+          },
+          {
+            "depart": "0.11:40:00"
+          },
+          {
+            "depart": "0.11:41:00"
+          },
+          {
+            "depart": "0.11:43:00"
+          },
+          {
+            "depart": "0.11:45:00"
+          },
+          {
+            "depart": "0.11:46:00"
+          },
+          {
+            "depart": "0.11:48:00"
+          },
+          {
+            "depart": "0.11:51:00"
+          },
+          {
+            "depart": "0.11:53:00"
+          },
+          {
+            "depart": "0.11:54:00"
+          },
+          {
+            "depart": "0.11:55:00"
+          },
+          {
+            "depart": "0.11:57:00"
+          },
+          {
+            "depart": "0.11:58:00"
+          },
+          {
+            "arrive": "0.12:00:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 0,
+        "calendarIndex": 0,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.18:00:00"
+          },
+          {
+            "depart": "0.18:06:00",
+            "dropoffType": "unavailable"
+          },
+          {
+            "depart": "0.18:09:00"
+          },
+          {
+            "depart": "0.18:14:00"
+          },
+          {
+            "depart": "0.18:15:00"
+          },
+          {
+            "depart": "0.18:16:00"
+          },
+          {
+            "depart": "0.18:17:00"
+          },
+          {
+            "depart": "0.18:20:00"
+          },
+          {
+            "depart": "0.18:22:00"
+          },
+          {},
+          {
+            "depart": "0.18:23:00"
+          },
+          {
+            "depart": "0.18:26:00"
+          },
+          {
+            "depart": "0.18:28:00"
+          },
+          {
+            "depart": "0.18:30:00"
+          },
+          {
+            "depart": "0.18:31:00"
+          },
+          {
+            "depart": "0.18:33:00"
+          },
+          {
+            "depart": "0.18:36:00"
+          },
+          {
+            "depart": "0.18:38:00"
+          },
+          {
+            "depart": "0.18:39:00"
+          },
+          {
+            "depart": "0.18:40:00"
+          },
+          {
+            "depart": "0.18:42:00"
+          },
+          {
+            "depart": "0.18:43:00"
+          },
+          {}
+        ]
+      },
+      {
+        "lineIndex": 0,
+        "calendarIndex": 1,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.11:30:00"
+          },
+          {
+            "depart": "0.11:36:00",
+            "dropoffType": "unavailable"
+          },
+          {
+            "depart": "0.11:39:00"
+          },
+          {
+            "depart": "0.11:44:00"
+          },
+          {
+            "depart": "0.11:45:00"
+          },
+          {
+            "depart": "0.11:46:00"
+          },
+          {
+            "depart": "0.11:47:00"
+          },
+          {
+            "depart": "0.11:50:00"
+          },
+          {
+            "depart": "0.11:52:00"
+          },
+          {
+            "depart": "0.11:53:00"
+          },
+          {
+            "depart": "0.11:55:00"
+          },
+          {
+            "depart": "0.11:56:00"
+          },
+          {
+            "depart": "0.11:58:00"
+          },
+          {
+            "depart": "0.12:00:00"
+          },
+          {
+            "depart": "0.12:01:00"
+          },
+          {
+            "depart": "0.12:03:00"
+          },
+          {
+            "depart": "0.12:06:00"
+          },
+          {
+            "depart": "0.12:08:00"
+          },
+          {
+            "depart": "0.12:09:00"
+          },
+          {
+            "depart": "0.12:10:00"
+          },
+          {
+            "depart": "0.12:12:00"
+          },
+          {
+            "depart": "0.12:13:00"
+          },
+          {
+            "arrive": "0.12:15:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 0,
+        "calendarIndex": 1,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.18:00:00"
+          },
+          {
+            "depart": "0.18:06:00",
+            "dropoffType": "unavailable"
+          },
+          {
+            "depart": "0.18:09:00"
+          },
+          {
+            "depart": "0.18:14:00"
+          },
+          {
+            "depart": "0.18:15:00"
+          },
+          {
+            "depart": "0.18:16:00"
+          },
+          {
+            "depart": "0.18:17:00"
+          },
+          {
+            "depart": "0.18:20:00"
+          },
+          {
+            "depart": "0.18:22:00"
+          },
+          {
+            "depart": "0.18:23:00"
+          },
+          {
+            "depart": "0.18:25:00"
+          },
+          {
+            "depart": "0.18:26:00"
+          },
+          {
+            "depart": "0.18:28:00"
+          },
+          {
+            "depart": "0.18:30:00"
+          },
+          {
+            "depart": "0.18:31:00"
+          },
+          {
+            "depart": "0.18:33:00"
+          },
+          {
+            "depart": "0.18:36:00"
+          },
+          {
+            "depart": "0.18:38:00"
+          },
+          {
+            "depart": "0.18:39:00"
+          },
+          {
+            "depart": "0.18:40:00"
+          },
+          {
+            "depart": "0.18:42:00"
+          },
+          {
+            "depart": "0.18:43:00"
+          },
+          {
+            "arrive": "0.18:45:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 1,
+        "calendarIndex": 0,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.12:00:00"
+          },
+          {
+            "depart": "0.12:02:00"
+          },
+          {
+            "depart": "0.12:03:00"
+          },
+          {
+            "depart": "0.12:05:00"
+          },
+          {
+            "depart": "0.12:06:00"
+          },
+          {
+            "depart": "0.12:07:00"
+          },
+          {
+            "depart": "0.12:09:00"
+          },
+          {
+            "depart": "0.12:12:00"
+          },
+          {
+            "depart": "0.12:14:00"
+          },
+          {
+            "depart": "0.12:15:00"
+          },
+          {
+            "depart": "0.12:17:00"
+          },
+          {
+            "depart": "0.12:19:00"
+          },
+          {
+            "depart": "0.12:20:00"
+          },
+          {
+            "depart": "0.12:21:00"
+          },
+          {
+            "depart": "0.12:22:00"
+          },
+          {
+            "depart": "0.12:25:00"
+          },
+          {
+            "depart": "0.12:28:00"
+          },
+          {
+            "depart": "0.12:29:00"
+          },
+          {
+            "depart": "0.12:30:00"
+          },
+          {
+            "depart": "0.12:31:00"
+          },
+          {
+            "depart": "0.12:36:00"
+          },
+          {
+            "depart": "0.12:39:00",
+            "pickupType": "unavailable"
+          },
+          {
+            "arrive": "0.12:45:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 1,
+        "calendarIndex": 0,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.17:00:00"
+          },
+          {
+            "depart": "0.17:02:00"
+          },
+          {
+            "depart": "0.17:03:00"
+          },
+          {
+            "depart": "0.17:05:00"
+          },
+          {
+            "depart": "0.17:06:00"
+          },
+          {
+            "depart": "0.17:07:00"
+          },
+          {
+            "depart": "0.17:09:00"
+          },
+          {
+            "depart": "0.17:12:00"
+          },
+          {
+            "depart": "0.17:14:00"
+          },
+          {
+            "depart": "0.17:15:00"
+          },
+          {
+            "depart": "0.17:17:00"
+          },
+          {
+            "depart": "0.17:19:00"
+          },
+          {
+            "depart": "0.17:20:00"
+          },
+          {
+            "depart": "0.17:21:00"
+          },
+          {
+            "depart": "0.17:22:00"
+          },
+          {
+            "depart": "0.17:25:00"
+          },
+          {
+            "depart": "0.17:28:00"
+          },
+          {
+            "depart": "0.17:29:00"
+          },
+          {
+            "depart": "0.17:30:00"
+          },
+          {
+            "depart": "0.17:31:00"
+          },
+          {
+            "depart": "0.17:36:00"
+          },
+          {
+            "depart": "0.17:39:00",
+            "pickupType": "unavailable"
+          },
+          {
+            "arrive": "0.17:45:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 1,
+        "calendarIndex": 1,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.09:00:00"
+          },
+          {
+            "depart": "0.09:02:00"
+          },
+          {
+            "depart": "0.09:03:00"
+          },
+          {
+            "depart": "0.09:05:00"
+          },
+          {
+            "depart": "0.09:06:00"
+          },
+          {
+            "depart": "0.09:07:00"
+          },
+          {
+            "depart": "0.09:09:00"
+          },
+          {
+            "depart": "0.09:12:00"
+          },
+          {
+            "depart": "0.09:14:00"
+          },
+          {
+            "depart": "0.09:15:00"
+          },
+          {
+            "depart": "0.09:17:00"
+          },
+          {
+            "depart": "0.09:19:00"
+          },
+          {
+            "depart": "0.09:20:00"
+          },
+          {
+            "depart": "0.09:21:00"
+          },
+          {
+            "depart": "0.09:22:00"
+          },
+          {
+            "depart": "0.09:25:00"
+          },
+          {
+            "depart": "0.09:28:00"
+          },
+          {
+            "depart": "0.09:29:00"
+          },
+          {
+            "depart": "0.09:30:00"
+          },
+          {
+            "depart": "0.09:31:00"
+          },
+          {
+            "depart": "0.09:36:00"
+          },
+          {
+            "depart": "0.09:39:00",
+            "pickupType": "unavailable"
+          },
+          {
+            "arrive": "0.09:45:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 1,
+        "calendarIndex": 1,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.12:15:00"
+          },
+          {
+            "depart": "0.12:17:00"
+          },
+          {
+            "depart": "0.12:18:00"
+          },
+          {
+            "depart": "0.12:20:00"
+          },
+          {
+            "depart": "0.12:21:00"
+          },
+          {
+            "depart": "0.12:22:00"
+          },
+          {
+            "depart": "0.12:24:00"
+          },
+          {
+            "depart": "0.12:27:00"
+          },
+          {
+            "depart": "0.12:29:00"
+          },
+          {
+            "depart": "0.12:30:00"
+          },
+          {
+            "depart": "0.12:32:00"
+          },
+          {
+            "depart": "0.12:34:00"
+          },
+          {
+            "depart": "0.12:35:00"
+          },
+          {
+            "depart": "0.12:36:00"
+          },
+          {
+            "depart": "0.12:37:00"
+          },
+          {
+            "depart": "0.12:40:00"
+          },
+          {
+            "depart": "0.12:43:00"
+          },
+          {
+            "depart": "0.12:44:00"
+          },
+          {
+            "depart": "0.12:45:00"
+          },
+          {
+            "depart": "0.12:46:00"
+          },
+          {
+            "depart": "0.12:51:00"
+          },
+          {
+            "depart": "0.12:54:00",
+            "pickupType": "unavailable"
+          },
+          {
+            "arrive": "0.13:00:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 0,
+        "calendarIndex": 2,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.13:00:00"
+          },
+          {
+            "depart": "0.13:06:00",
+            "dropoffType": "unavailable"
+          },
+          {
+            "depart": "0.13:09:00"
+          },
+          {
+            "depart": "0.13:14:00"
+          },
+          {
+            "depart": "0.13:15:00"
+          },
+          {
+            "depart": "0.13:16:00"
+          },
+          {
+            "depart": "0.13:17:00"
+          },
+          {
+            "depart": "0.13:20:00"
+          },
+          {
+            "depart": "0.13:22:00"
+          },
+          {
+            "depart": "0.13:23:00"
+          },
+          {
+            "depart": "0.13:25:00"
+          },
+          {
+            "depart": "0.13:26:00"
+          },
+          {
+            "depart": "0.13:28:00"
+          },
+          {
+            "depart": "0.13:30:00"
+          },
+          {
+            "depart": "0.13:31:00"
+          },
+          {
+            "depart": "0.13:33:00"
+          },
+          {
+            "depart": "0.13:36:00"
+          },
+          {
+            "depart": "0.13:38:00"
+          },
+          {
+            "depart": "0.13:39:00"
+          },
+          {
+            "depart": "0.13:40:00"
+          },
+          {
+            "depart": "0.13:42:00"
+          },
+          {
+            "depart": "0.13:43:00"
+          },
+          {
+            "arrive": "0.13:45:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 0,
+        "calendarIndex": 2,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.18:00:00"
+          },
+          {
+            "depart": "0.18:06:00",
+            "dropoffType": "unavailable"
+          },
+          {
+            "depart": "0.18:09:00"
+          },
+          {
+            "depart": "0.18:14:00"
+          },
+          {
+            "depart": "0.18:15:00"
+          },
+          {
+            "depart": "0.18:16:00"
+          },
+          {
+            "depart": "0.18:17:00"
+          },
+          {
+            "depart": "0.18:20:00"
+          },
+          {
+            "depart": "0.18:22:00"
+          },
+          {
+            "depart": "0.18:23:00"
+          },
+          {
+            "depart": "0.18:25:00"
+          },
+          {
+            "depart": "0.18:26:00"
+          },
+          {
+            "depart": "0.18:28:00"
+          },
+          {
+            "depart": "0.18:30:00"
+          },
+          {
+            "depart": "0.18:31:00"
+          },
+          {
+            "depart": "0.18:33:00"
+          },
+          {
+            "depart": "0.18:36:00"
+          },
+          {
+            "depart": "0.18:38:00"
+          },
+          {
+            "depart": "0.18:39:00"
+          },
+          {
+            "depart": "0.18:40:00"
+          },
+          {
+            "depart": "0.18:42:00"
+          },
+          {
+            "depart": "0.18:43:00"
+          },
+          {
+            "arrive": "0.18:45:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 1,
+        "calendarIndex": 2,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.09:00:00"
+          },
+          {
+            "depart": "0.09:02:00"
+          },
+          {
+            "depart": "0.09:03:00"
+          },
+          {
+            "depart": "0.09:05:00"
+          },
+          {
+            "depart": "0.09:06:00"
+          },
+          {
+            "depart": "0.09:07:00"
+          },
+          {
+            "depart": "0.09:09:00"
+          },
+          {
+            "depart": "0.09:12:00"
+          },
+          {
+            "depart": "0.09:14:00"
+          },
+          {
+            "depart": "0.09:15:00"
+          },
+          {
+            "depart": "0.09:17:00"
+          },
+          {
+            "depart": "0.09:19:00"
+          },
+          {
+            "depart": "0.09:20:00"
+          },
+          {
+            "depart": "0.09:21:00"
+          },
+          {
+            "depart": "0.09:22:00"
+          },
+          {
+            "depart": "0.09:25:00"
+          },
+          {
+            "depart": "0.09:28:00"
+          },
+          {
+            "depart": "0.09:29:00"
+          },
+          {
+            "depart": "0.09:30:00"
+          },
+          {
+            "depart": "0.09:31:00"
+          },
+          {
+            "depart": "0.09:36:00"
+          },
+          {
+            "depart": "0.09:39:00",
+            "pickupType": "unavailable"
+          },
+          {
+            "arrive": "0.09:45:00"
+          }
+        ]
+      },
+      {
+        "lineIndex": 1,
+        "calendarIndex": 2,
+        "amenities": [],
+        "serviceInformation": {},
+        "headsign": "",
+        "stops": [
+          {
+            "depart": "0.13:45:00"
+          },
+          {
+            "depart": "0.13:47:00"
+          },
+          {
+            "depart": "0.13:48:00"
+          },
+          {
+            "depart": "0.13:50:00"
+          },
+          {
+            "depart": "0.13:51:00"
+          },
+          {
+            "depart": "0.13:52:00"
+          },
+          {
+            "depart": "0.13:54:00"
+          },
+          {
+            "depart": "0.13:57:00"
+          },
+          {
+            "depart": "0.13:59:00"
+          },
+          {
+            "depart": "0.14:00:00"
+          },
+          {
+            "depart": "0.14:02:00"
+          },
+          {
+            "depart": "0.14:04:00"
+          },
+          {
+            "depart": "0.14:05:00"
+          },
+          {
+            "depart": "0.14:06:00"
+          },
+          {
+            "depart": "0.14:07:00"
+          },
+          {
+            "depart": "0.14:10:00"
+          },
+          {
+            "depart": "0.14:13:00"
+          },
+          {
+            "depart": "0.14:14:00"
+          },
+          {
+            "depart": "0.14:15:00"
+          },
+          {
+            "depart": "0.14:16:00"
+          },
+          {
+            "depart": "0.14:21:00"
+          },
+          {
+            "depart": "0.14:24:00",
+            "pickupType": "unavailable"
+          },
+          {
+            "arrive": "0.14:30:00"
+          }
+        ]
+      }
+    ]
+  },
+  "expiryDate": "",
+  "pricing": {
+    "currency": "EUR",
+    "usePriceClasses": false,
+    "singleValue": 3.1,
+    "classes": []
+  },
+  "details": {
+    "agencyId": "_ARRIVA.GAL",
+    "additionalText": "",
+    "schedulesUrl": "https://arriva.es/es/galicia",
+    "bookingUrl": "",
+    "transportLabel": "",
+    "transportKind": "bus",
+    "temporaryDisruption": false
+  }
+}

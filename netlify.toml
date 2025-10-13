@@ -1,0 +1,10 @@
+[build]
+  base    = "gtfs-editor"
+  command = "npm install && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20.19.0"
+
+[functions]
+  directory = "netlify/functions"

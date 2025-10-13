@@ -1,0 +1,2547 @@
+{
+  "agencies": [
+    {
+      "agency_id": "_ARRIVA.GAL",
+      "agency_name": "",
+      "agency_url": "https://arriva.es/es/galicia",
+      "agency_timezone": "Europe/Madrid"
+    }
+  ],
+  "stops": [
+    {
+      "uid": "UID_N1",
+      "stop_id": "N1",
+      "stop_name": "Lugo E.A.",
+      "stop_lat": 43.0083389,
+      "stop_lon": -7.55364084
+    },
+    {
+      "uid": "UID_N2",
+      "stop_id": "N2",
+      "stop_name": "Lugo - Avda. das Américas",
+      "stop_lat": 43.0100937,
+      "stop_lon": -7.56868792
+    },
+    {
+      "uid": "UID_N3",
+      "stop_id": "N3",
+      "stop_name": "Lugo-Avda. das Américas",
+      "stop_lat": 43.0100708,
+      "stop_lon": -7.56857109
+    },
+    {
+      "uid": "UID_N4",
+      "stop_id": "N4",
+      "stop_name": "Garabolos",
+      "stop_lat": 43.0297394,
+      "stop_lon": -7.57063389
+    },
+    {
+      "uid": "UID_N5",
+      "stop_id": "N5",
+      "stop_name": "O Castro",
+      "stop_lat": 43.0750084,
+      "stop_lon": -7.60460806
+    },
+    {
+      "uid": "UID_N6",
+      "stop_id": "N6",
+      "stop_name": "Robra",
+      "stop_lat": 43.0870476,
+      "stop_lon": -7.60618019
+    },
+    {
+      "uid": "UID_N7",
+      "stop_id": "N7",
+      "stop_name": "Outeiro de Rei",
+      "stop_lat": 43.1019402,
+      "stop_lon": -7.61389399
+    },
+    {
+      "uid": "UID_N8",
+      "stop_id": "N8",
+      "stop_name": "Cuartel Vello",
+      "stop_lat": 43.1179504,
+      "stop_lon": -7.61914492
+    },
+    {
+      "uid": "UID_N9",
+      "stop_id": "N9",
+      "stop_name": "Rábade",
+      "stop_lat": 43.119812,
+      "stop_lon": -7.62628841
+    },
+    {
+      "uid": "UID_N10",
+      "stop_id": "N10",
+      "stop_name": "Saavedra Estrada",
+      "stop_lat": 43.1425781,
+      "stop_lon": -7.62904692
+    },
+    {
+      "uid": "UID_N11",
+      "stop_id": "N11",
+      "stop_name": "Saavedra Cruce",
+      "stop_lat": 43.1514702,
+      "stop_lon": -7.63264513
+    },
+    {
+      "uid": "UID_N12",
+      "stop_id": "N12",
+      "stop_name": "Damil",
+      "stop_lat": 43.1592903,
+      "stop_lon": -7.63579082
+    },
+    {
+      "uid": "UID_N13",
+      "stop_id": "N13",
+      "stop_name": "Peto",
+      "stop_lat": 43.1716309,
+      "stop_lon": -7.63743019
+    },
+    {
+      "uid": "UID_N14",
+      "stop_id": "N14",
+      "stop_name": "Trobo",
+      "stop_lat": 43.1796913,
+      "stop_lon": -7.63997698
+    },
+    {
+      "uid": "UID_N15",
+      "stop_id": "N15",
+      "stop_name": "Gaibor",
+      "stop_lat": 43.1868591,
+      "stop_lon": -7.64230299
+    },
+    {
+      "uid": "UID_N16",
+      "stop_id": "N16",
+      "stop_name": "Morán-A Granxa",
+      "stop_lat": 43.1965599,
+      "stop_lon": -7.64433098
+    },
+    {
+      "uid": "UID_N17",
+      "stop_id": "N17",
+      "stop_name": "Fontefría",
+      "stop_lat": 43.2106209,
+      "stop_lon": -7.65294695
+    },
+    {
+      "uid": "UID_N18",
+      "stop_id": "N18",
+      "stop_name": "Lengua Dereita",
+      "stop_lat": 43.2289505,
+      "stop_lon": -7.66095686
+    },
+    {
+      "uid": "UID_N19",
+      "stop_id": "N19",
+      "stop_name": "Parrocha",
+      "stop_lat": 43.2457809,
+      "stop_lon": -7.66814423
+    },
+    {
+      "uid": "UID_N20",
+      "stop_id": "N20",
+      "stop_name": "Panchita",
+      "stop_lat": 43.2542992,
+      "stop_lon": -7.66969919
+    },
+    {
+      "uid": "UID_N21",
+      "stop_id": "N21",
+      "stop_name": "Noche-San Martín",
+      "stop_lat": 43.2612686,
+      "stop_lon": -7.67093515
+    },
+    {
+      "uid": "UID_N22",
+      "stop_id": "N22",
+      "stop_name": "Ventorro",
+      "stop_lat": 43.2811089,
+      "stop_lon": -7.67576265
+    },
+    {
+      "uid": "UID_N23",
+      "stop_id": "N23",
+      "stop_name": "Ventorro",
+      "stop_lat": 43.2812691,
+      "stop_lon": -7.67605782
+    },
+    {
+      "uid": "UID_N24",
+      "stop_id": "N24",
+      "stop_name": "Guadalupe",
+      "stop_lat": 43.2906113,
+      "stop_lon": -7.67937708
+    },
+    {
+      "uid": "UID_N25",
+      "stop_id": "N25",
+      "stop_name": "Vilalba E.A.",
+      "stop_lat": 43.3024483,
+      "stop_lon": -7.67521
+    }
+  ],
+  "routes": [
+    {
+      "route_id": "L.8883",
+      "route_short_name": "L.8883",
+      "route_long_name": "",
+      "route_type": 3,
+      "agency_id": "_ARRIVA.GAL"
+    }
+  ],
+  "services": [
+    {
+      "service_id": "SERVICE_1",
+      "monday": 1,
+      "tuesday": 1,
+      "wednesday": 1,
+      "thursday": 1,
+      "friday": 1,
+      "saturday": 0,
+      "sunday": 0,
+      "start_date": "20251006",
+      "end_date": "20260406"
+    },
+    {
+      "service_id": "SERVICE_2",
+      "monday": 0,
+      "tuesday": 0,
+      "wednesday": 0,
+      "thursday": 0,
+      "friday": 0,
+      "saturday": 1,
+      "sunday": 0,
+      "start_date": "20251006",
+      "end_date": "20260406"
+    },
+    {
+      "service_id": "SERVICE_3",
+      "monday": 0,
+      "tuesday": 0,
+      "wednesday": 0,
+      "thursday": 0,
+      "friday": 0,
+      "saturday": 0,
+      "sunday": 1,
+      "start_date": "20251006",
+      "end_date": "20260406"
+    }
+  ],
+  "trips": [
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_1",
+      "trip_id": "L.8883_SERVICE_1_1",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir0_L1",
+      "direction_id": 0
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_1",
+      "trip_id": "L.8883_SERVICE_1_2",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir0_L1",
+      "direction_id": 0
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_2",
+      "trip_id": "L.8883_SERVICE_2_3",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir0_L1",
+      "direction_id": 0
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_2",
+      "trip_id": "L.8883_SERVICE_2_4",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir0_L1",
+      "direction_id": 0
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_1",
+      "trip_id": "L.8883_SERVICE_1_5",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir1_L2",
+      "direction_id": 1
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_1",
+      "trip_id": "L.8883_SERVICE_1_6",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir1_L2",
+      "direction_id": 1
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_2",
+      "trip_id": "L.8883_SERVICE_2_7",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir1_L2",
+      "direction_id": 1
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_2",
+      "trip_id": "L.8883_SERVICE_2_8",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir1_L2",
+      "direction_id": 1
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_3",
+      "trip_id": "L.8883_SERVICE_3_9",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir0_L1",
+      "direction_id": 0
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_3",
+      "trip_id": "L.8883_SERVICE_3_10",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir0_L1",
+      "direction_id": 0
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_3",
+      "trip_id": "L.8883_SERVICE_3_11",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir1_L2",
+      "direction_id": 1
+    },
+    {
+      "route_id": "L.8883",
+      "service_id": "SERVICE_3",
+      "trip_id": "L.8883_SERVICE_3_12",
+      "trip_headsign": null,
+      "shape_id": "L.8883_dir1_L2",
+      "direction_id": 1
+    }
+  ],
+  "stopTimes": [
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:15:00",
+      "departure_time": "11:15:00",
+      "stop_id": "N1",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:21:00",
+      "departure_time": "11:21:00",
+      "stop_id": "N2",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:24:00",
+      "departure_time": "11:24:00",
+      "stop_id": "N4",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:29:00",
+      "departure_time": "11:29:00",
+      "stop_id": "N5",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:30:00",
+      "departure_time": "11:30:00",
+      "stop_id": "N6",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:31:00",
+      "departure_time": "11:31:00",
+      "stop_id": "N7",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:32:00",
+      "departure_time": "11:32:00",
+      "stop_id": "N8",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:35:00",
+      "departure_time": "11:35:00",
+      "stop_id": "N9",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:37:00",
+      "departure_time": "11:37:00",
+      "stop_id": "N10",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:38:00",
+      "departure_time": "11:38:00",
+      "stop_id": "N11",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:40:00",
+      "departure_time": "11:40:00",
+      "stop_id": "N12",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:41:00",
+      "departure_time": "11:41:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:43:00",
+      "departure_time": "11:43:00",
+      "stop_id": "N14",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:45:00",
+      "departure_time": "11:45:00",
+      "stop_id": "N15",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:46:00",
+      "departure_time": "11:46:00",
+      "stop_id": "N16",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:48:00",
+      "departure_time": "11:48:00",
+      "stop_id": "N17",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:51:00",
+      "departure_time": "11:51:00",
+      "stop_id": "N18",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:53:00",
+      "departure_time": "11:53:00",
+      "stop_id": "N19",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:54:00",
+      "departure_time": "11:54:00",
+      "stop_id": "N20",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:55:00",
+      "departure_time": "11:55:00",
+      "stop_id": "N21",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:57:00",
+      "departure_time": "11:57:00",
+      "stop_id": "N22",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "11:58:00",
+      "departure_time": "11:58:00",
+      "stop_id": "N24",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_1",
+      "arrival_time": "12:00:00",
+      "departure_time": "12:00:00",
+      "stop_id": "N25",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:00:00",
+      "departure_time": "18:00:00",
+      "stop_id": "N1",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:06:00",
+      "departure_time": "18:06:00",
+      "stop_id": "N2",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:09:00",
+      "departure_time": "18:09:00",
+      "stop_id": "N4",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:14:00",
+      "departure_time": "18:14:00",
+      "stop_id": "N5",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:15:00",
+      "departure_time": "18:15:00",
+      "stop_id": "N6",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:16:00",
+      "departure_time": "18:16:00",
+      "stop_id": "N7",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:17:00",
+      "departure_time": "18:17:00",
+      "stop_id": "N8",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:20:00",
+      "departure_time": "18:20:00",
+      "stop_id": "N9",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:22:00",
+      "departure_time": "18:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "",
+      "departure_time": "",
+      "stop_id": "N11",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:23:00",
+      "departure_time": "18:23:00",
+      "stop_id": "N12",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:26:00",
+      "departure_time": "18:26:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:28:00",
+      "departure_time": "18:28:00",
+      "stop_id": "N14",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:30:00",
+      "departure_time": "18:30:00",
+      "stop_id": "N15",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:31:00",
+      "departure_time": "18:31:00",
+      "stop_id": "N16",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:33:00",
+      "departure_time": "18:33:00",
+      "stop_id": "N17",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:36:00",
+      "departure_time": "18:36:00",
+      "stop_id": "N18",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:38:00",
+      "departure_time": "18:38:00",
+      "stop_id": "N19",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:39:00",
+      "departure_time": "18:39:00",
+      "stop_id": "N20",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:40:00",
+      "departure_time": "18:40:00",
+      "stop_id": "N21",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:42:00",
+      "departure_time": "18:42:00",
+      "stop_id": "N22",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "18:43:00",
+      "departure_time": "18:43:00",
+      "stop_id": "N24",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_2",
+      "arrival_time": "",
+      "departure_time": "",
+      "stop_id": "N25",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:30:00",
+      "departure_time": "11:30:00",
+      "stop_id": "N1",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:36:00",
+      "departure_time": "11:36:00",
+      "stop_id": "N2",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:39:00",
+      "departure_time": "11:39:00",
+      "stop_id": "N4",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:44:00",
+      "departure_time": "11:44:00",
+      "stop_id": "N5",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:45:00",
+      "departure_time": "11:45:00",
+      "stop_id": "N6",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:46:00",
+      "departure_time": "11:46:00",
+      "stop_id": "N7",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:47:00",
+      "departure_time": "11:47:00",
+      "stop_id": "N8",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:50:00",
+      "departure_time": "11:50:00",
+      "stop_id": "N9",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:52:00",
+      "departure_time": "11:52:00",
+      "stop_id": "N10",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:53:00",
+      "departure_time": "11:53:00",
+      "stop_id": "N11",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:55:00",
+      "departure_time": "11:55:00",
+      "stop_id": "N12",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:56:00",
+      "departure_time": "11:56:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "11:58:00",
+      "departure_time": "11:58:00",
+      "stop_id": "N14",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:00:00",
+      "departure_time": "12:00:00",
+      "stop_id": "N15",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:01:00",
+      "departure_time": "12:01:00",
+      "stop_id": "N16",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:03:00",
+      "departure_time": "12:03:00",
+      "stop_id": "N17",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:06:00",
+      "departure_time": "12:06:00",
+      "stop_id": "N18",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:08:00",
+      "departure_time": "12:08:00",
+      "stop_id": "N19",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:09:00",
+      "departure_time": "12:09:00",
+      "stop_id": "N20",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:10:00",
+      "departure_time": "12:10:00",
+      "stop_id": "N21",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:12:00",
+      "departure_time": "12:12:00",
+      "stop_id": "N22",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:13:00",
+      "departure_time": "12:13:00",
+      "stop_id": "N24",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_3",
+      "arrival_time": "12:15:00",
+      "departure_time": "12:15:00",
+      "stop_id": "N25",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:00:00",
+      "departure_time": "18:00:00",
+      "stop_id": "N1",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:06:00",
+      "departure_time": "18:06:00",
+      "stop_id": "N2",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:09:00",
+      "departure_time": "18:09:00",
+      "stop_id": "N4",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:14:00",
+      "departure_time": "18:14:00",
+      "stop_id": "N5",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:15:00",
+      "departure_time": "18:15:00",
+      "stop_id": "N6",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:16:00",
+      "departure_time": "18:16:00",
+      "stop_id": "N7",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:17:00",
+      "departure_time": "18:17:00",
+      "stop_id": "N8",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:20:00",
+      "departure_time": "18:20:00",
+      "stop_id": "N9",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:22:00",
+      "departure_time": "18:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:23:00",
+      "departure_time": "18:23:00",
+      "stop_id": "N11",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:25:00",
+      "departure_time": "18:25:00",
+      "stop_id": "N12",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:26:00",
+      "departure_time": "18:26:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:28:00",
+      "departure_time": "18:28:00",
+      "stop_id": "N14",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:30:00",
+      "departure_time": "18:30:00",
+      "stop_id": "N15",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:31:00",
+      "departure_time": "18:31:00",
+      "stop_id": "N16",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:33:00",
+      "departure_time": "18:33:00",
+      "stop_id": "N17",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:36:00",
+      "departure_time": "18:36:00",
+      "stop_id": "N18",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:38:00",
+      "departure_time": "18:38:00",
+      "stop_id": "N19",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:39:00",
+      "departure_time": "18:39:00",
+      "stop_id": "N20",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:40:00",
+      "departure_time": "18:40:00",
+      "stop_id": "N21",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:42:00",
+      "departure_time": "18:42:00",
+      "stop_id": "N22",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:43:00",
+      "departure_time": "18:43:00",
+      "stop_id": "N24",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_4",
+      "arrival_time": "18:45:00",
+      "departure_time": "18:45:00",
+      "stop_id": "N25",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:00:00",
+      "departure_time": "12:00:00",
+      "stop_id": "N25",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:02:00",
+      "departure_time": "12:02:00",
+      "stop_id": "N24",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:03:00",
+      "departure_time": "12:03:00",
+      "stop_id": "N23",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:05:00",
+      "departure_time": "12:05:00",
+      "stop_id": "N21",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:06:00",
+      "departure_time": "12:06:00",
+      "stop_id": "N20",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:07:00",
+      "departure_time": "12:07:00",
+      "stop_id": "N19",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:09:00",
+      "departure_time": "12:09:00",
+      "stop_id": "N18",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:12:00",
+      "departure_time": "12:12:00",
+      "stop_id": "N17",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:14:00",
+      "departure_time": "12:14:00",
+      "stop_id": "N16",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:15:00",
+      "departure_time": "12:15:00",
+      "stop_id": "N15",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:17:00",
+      "departure_time": "12:17:00",
+      "stop_id": "N14",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:19:00",
+      "departure_time": "12:19:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:20:00",
+      "departure_time": "12:20:00",
+      "stop_id": "N12",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:21:00",
+      "departure_time": "12:21:00",
+      "stop_id": "N11",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:22:00",
+      "departure_time": "12:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:25:00",
+      "departure_time": "12:25:00",
+      "stop_id": "N9",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:28:00",
+      "departure_time": "12:28:00",
+      "stop_id": "N8",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:29:00",
+      "departure_time": "12:29:00",
+      "stop_id": "N7",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:30:00",
+      "departure_time": "12:30:00",
+      "stop_id": "N6",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:31:00",
+      "departure_time": "12:31:00",
+      "stop_id": "N5",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:36:00",
+      "departure_time": "12:36:00",
+      "stop_id": "N4",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:39:00",
+      "departure_time": "12:39:00",
+      "stop_id": "N2",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_5",
+      "arrival_time": "12:45:00",
+      "departure_time": "12:45:00",
+      "stop_id": "N1",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:00:00",
+      "departure_time": "17:00:00",
+      "stop_id": "N25",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:02:00",
+      "departure_time": "17:02:00",
+      "stop_id": "N24",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:03:00",
+      "departure_time": "17:03:00",
+      "stop_id": "N23",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:05:00",
+      "departure_time": "17:05:00",
+      "stop_id": "N21",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:06:00",
+      "departure_time": "17:06:00",
+      "stop_id": "N20",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:07:00",
+      "departure_time": "17:07:00",
+      "stop_id": "N19",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:09:00",
+      "departure_time": "17:09:00",
+      "stop_id": "N18",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:12:00",
+      "departure_time": "17:12:00",
+      "stop_id": "N17",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:14:00",
+      "departure_time": "17:14:00",
+      "stop_id": "N16",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:15:00",
+      "departure_time": "17:15:00",
+      "stop_id": "N15",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:17:00",
+      "departure_time": "17:17:00",
+      "stop_id": "N14",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:19:00",
+      "departure_time": "17:19:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:20:00",
+      "departure_time": "17:20:00",
+      "stop_id": "N12",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:21:00",
+      "departure_time": "17:21:00",
+      "stop_id": "N11",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:22:00",
+      "departure_time": "17:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:25:00",
+      "departure_time": "17:25:00",
+      "stop_id": "N9",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:28:00",
+      "departure_time": "17:28:00",
+      "stop_id": "N8",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:29:00",
+      "departure_time": "17:29:00",
+      "stop_id": "N7",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:30:00",
+      "departure_time": "17:30:00",
+      "stop_id": "N6",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:31:00",
+      "departure_time": "17:31:00",
+      "stop_id": "N5",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:36:00",
+      "departure_time": "17:36:00",
+      "stop_id": "N4",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:39:00",
+      "departure_time": "17:39:00",
+      "stop_id": "N2",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_1_6",
+      "arrival_time": "17:45:00",
+      "departure_time": "17:45:00",
+      "stop_id": "N1",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:00:00",
+      "departure_time": "09:00:00",
+      "stop_id": "N25",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:02:00",
+      "departure_time": "09:02:00",
+      "stop_id": "N24",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:03:00",
+      "departure_time": "09:03:00",
+      "stop_id": "N23",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:05:00",
+      "departure_time": "09:05:00",
+      "stop_id": "N21",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:06:00",
+      "departure_time": "09:06:00",
+      "stop_id": "N20",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:07:00",
+      "departure_time": "09:07:00",
+      "stop_id": "N19",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:09:00",
+      "departure_time": "09:09:00",
+      "stop_id": "N18",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:12:00",
+      "departure_time": "09:12:00",
+      "stop_id": "N17",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:14:00",
+      "departure_time": "09:14:00",
+      "stop_id": "N16",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:15:00",
+      "departure_time": "09:15:00",
+      "stop_id": "N15",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:17:00",
+      "departure_time": "09:17:00",
+      "stop_id": "N14",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:19:00",
+      "departure_time": "09:19:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:20:00",
+      "departure_time": "09:20:00",
+      "stop_id": "N12",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:21:00",
+      "departure_time": "09:21:00",
+      "stop_id": "N11",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:22:00",
+      "departure_time": "09:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:25:00",
+      "departure_time": "09:25:00",
+      "stop_id": "N9",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:28:00",
+      "departure_time": "09:28:00",
+      "stop_id": "N8",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:29:00",
+      "departure_time": "09:29:00",
+      "stop_id": "N7",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:30:00",
+      "departure_time": "09:30:00",
+      "stop_id": "N6",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:31:00",
+      "departure_time": "09:31:00",
+      "stop_id": "N5",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:36:00",
+      "departure_time": "09:36:00",
+      "stop_id": "N4",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:39:00",
+      "departure_time": "09:39:00",
+      "stop_id": "N2",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_7",
+      "arrival_time": "09:45:00",
+      "departure_time": "09:45:00",
+      "stop_id": "N1",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:15:00",
+      "departure_time": "12:15:00",
+      "stop_id": "N25",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:17:00",
+      "departure_time": "12:17:00",
+      "stop_id": "N24",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:18:00",
+      "departure_time": "12:18:00",
+      "stop_id": "N23",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:20:00",
+      "departure_time": "12:20:00",
+      "stop_id": "N21",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:21:00",
+      "departure_time": "12:21:00",
+      "stop_id": "N20",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:22:00",
+      "departure_time": "12:22:00",
+      "stop_id": "N19",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:24:00",
+      "departure_time": "12:24:00",
+      "stop_id": "N18",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:27:00",
+      "departure_time": "12:27:00",
+      "stop_id": "N17",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:29:00",
+      "departure_time": "12:29:00",
+      "stop_id": "N16",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:30:00",
+      "departure_time": "12:30:00",
+      "stop_id": "N15",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:32:00",
+      "departure_time": "12:32:00",
+      "stop_id": "N14",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:34:00",
+      "departure_time": "12:34:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:35:00",
+      "departure_time": "12:35:00",
+      "stop_id": "N12",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:36:00",
+      "departure_time": "12:36:00",
+      "stop_id": "N11",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:37:00",
+      "departure_time": "12:37:00",
+      "stop_id": "N10",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:40:00",
+      "departure_time": "12:40:00",
+      "stop_id": "N9",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:43:00",
+      "departure_time": "12:43:00",
+      "stop_id": "N8",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:44:00",
+      "departure_time": "12:44:00",
+      "stop_id": "N7",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:45:00",
+      "departure_time": "12:45:00",
+      "stop_id": "N6",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:46:00",
+      "departure_time": "12:46:00",
+      "stop_id": "N5",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:51:00",
+      "departure_time": "12:51:00",
+      "stop_id": "N4",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "12:54:00",
+      "departure_time": "12:54:00",
+      "stop_id": "N2",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_2_8",
+      "arrival_time": "13:00:00",
+      "departure_time": "13:00:00",
+      "stop_id": "N1",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:00:00",
+      "departure_time": "13:00:00",
+      "stop_id": "N1",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:06:00",
+      "departure_time": "13:06:00",
+      "stop_id": "N2",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:09:00",
+      "departure_time": "13:09:00",
+      "stop_id": "N4",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:14:00",
+      "departure_time": "13:14:00",
+      "stop_id": "N5",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:15:00",
+      "departure_time": "13:15:00",
+      "stop_id": "N6",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:16:00",
+      "departure_time": "13:16:00",
+      "stop_id": "N7",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:17:00",
+      "departure_time": "13:17:00",
+      "stop_id": "N8",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:20:00",
+      "departure_time": "13:20:00",
+      "stop_id": "N9",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:22:00",
+      "departure_time": "13:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:23:00",
+      "departure_time": "13:23:00",
+      "stop_id": "N11",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:25:00",
+      "departure_time": "13:25:00",
+      "stop_id": "N12",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:26:00",
+      "departure_time": "13:26:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:28:00",
+      "departure_time": "13:28:00",
+      "stop_id": "N14",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:30:00",
+      "departure_time": "13:30:00",
+      "stop_id": "N15",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:31:00",
+      "departure_time": "13:31:00",
+      "stop_id": "N16",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:33:00",
+      "departure_time": "13:33:00",
+      "stop_id": "N17",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:36:00",
+      "departure_time": "13:36:00",
+      "stop_id": "N18",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:38:00",
+      "departure_time": "13:38:00",
+      "stop_id": "N19",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:39:00",
+      "departure_time": "13:39:00",
+      "stop_id": "N20",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:40:00",
+      "departure_time": "13:40:00",
+      "stop_id": "N21",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:42:00",
+      "departure_time": "13:42:00",
+      "stop_id": "N22",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:43:00",
+      "departure_time": "13:43:00",
+      "stop_id": "N24",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_9",
+      "arrival_time": "13:45:00",
+      "departure_time": "13:45:00",
+      "stop_id": "N25",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:00:00",
+      "departure_time": "18:00:00",
+      "stop_id": "N1",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:06:00",
+      "departure_time": "18:06:00",
+      "stop_id": "N2",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:09:00",
+      "departure_time": "18:09:00",
+      "stop_id": "N4",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:14:00",
+      "departure_time": "18:14:00",
+      "stop_id": "N5",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:15:00",
+      "departure_time": "18:15:00",
+      "stop_id": "N6",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:16:00",
+      "departure_time": "18:16:00",
+      "stop_id": "N7",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:17:00",
+      "departure_time": "18:17:00",
+      "stop_id": "N8",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:20:00",
+      "departure_time": "18:20:00",
+      "stop_id": "N9",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:22:00",
+      "departure_time": "18:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:23:00",
+      "departure_time": "18:23:00",
+      "stop_id": "N11",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:25:00",
+      "departure_time": "18:25:00",
+      "stop_id": "N12",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:26:00",
+      "departure_time": "18:26:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:28:00",
+      "departure_time": "18:28:00",
+      "stop_id": "N14",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:30:00",
+      "departure_time": "18:30:00",
+      "stop_id": "N15",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:31:00",
+      "departure_time": "18:31:00",
+      "stop_id": "N16",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:33:00",
+      "departure_time": "18:33:00",
+      "stop_id": "N17",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:36:00",
+      "departure_time": "18:36:00",
+      "stop_id": "N18",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:38:00",
+      "departure_time": "18:38:00",
+      "stop_id": "N19",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:39:00",
+      "departure_time": "18:39:00",
+      "stop_id": "N20",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:40:00",
+      "departure_time": "18:40:00",
+      "stop_id": "N21",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:42:00",
+      "departure_time": "18:42:00",
+      "stop_id": "N22",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:43:00",
+      "departure_time": "18:43:00",
+      "stop_id": "N24",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_10",
+      "arrival_time": "18:45:00",
+      "departure_time": "18:45:00",
+      "stop_id": "N25",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:00:00",
+      "departure_time": "09:00:00",
+      "stop_id": "N25",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:02:00",
+      "departure_time": "09:02:00",
+      "stop_id": "N24",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:03:00",
+      "departure_time": "09:03:00",
+      "stop_id": "N23",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:05:00",
+      "departure_time": "09:05:00",
+      "stop_id": "N21",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:06:00",
+      "departure_time": "09:06:00",
+      "stop_id": "N20",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:07:00",
+      "departure_time": "09:07:00",
+      "stop_id": "N19",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:09:00",
+      "departure_time": "09:09:00",
+      "stop_id": "N18",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:12:00",
+      "departure_time": "09:12:00",
+      "stop_id": "N17",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:14:00",
+      "departure_time": "09:14:00",
+      "stop_id": "N16",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:15:00",
+      "departure_time": "09:15:00",
+      "stop_id": "N15",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:17:00",
+      "departure_time": "09:17:00",
+      "stop_id": "N14",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:19:00",
+      "departure_time": "09:19:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:20:00",
+      "departure_time": "09:20:00",
+      "stop_id": "N12",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:21:00",
+      "departure_time": "09:21:00",
+      "stop_id": "N11",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:22:00",
+      "departure_time": "09:22:00",
+      "stop_id": "N10",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:25:00",
+      "departure_time": "09:25:00",
+      "stop_id": "N9",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:28:00",
+      "departure_time": "09:28:00",
+      "stop_id": "N8",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:29:00",
+      "departure_time": "09:29:00",
+      "stop_id": "N7",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:30:00",
+      "departure_time": "09:30:00",
+      "stop_id": "N6",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:31:00",
+      "departure_time": "09:31:00",
+      "stop_id": "N5",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:36:00",
+      "departure_time": "09:36:00",
+      "stop_id": "N4",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:39:00",
+      "departure_time": "09:39:00",
+      "stop_id": "N2",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_11",
+      "arrival_time": "09:45:00",
+      "departure_time": "09:45:00",
+      "stop_id": "N1",
+      "stop_sequence": 23
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:45:00",
+      "departure_time": "13:45:00",
+      "stop_id": "N25",
+      "stop_sequence": 1
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:47:00",
+      "departure_time": "13:47:00",
+      "stop_id": "N24",
+      "stop_sequence": 2
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:48:00",
+      "departure_time": "13:48:00",
+      "stop_id": "N23",
+      "stop_sequence": 3
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:50:00",
+      "departure_time": "13:50:00",
+      "stop_id": "N21",
+      "stop_sequence": 4
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:51:00",
+      "departure_time": "13:51:00",
+      "stop_id": "N20",
+      "stop_sequence": 5
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:52:00",
+      "departure_time": "13:52:00",
+      "stop_id": "N19",
+      "stop_sequence": 6
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:54:00",
+      "departure_time": "13:54:00",
+      "stop_id": "N18",
+      "stop_sequence": 7
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:57:00",
+      "departure_time": "13:57:00",
+      "stop_id": "N17",
+      "stop_sequence": 8
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "13:59:00",
+      "departure_time": "13:59:00",
+      "stop_id": "N16",
+      "stop_sequence": 9
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:00:00",
+      "departure_time": "14:00:00",
+      "stop_id": "N15",
+      "stop_sequence": 10
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:02:00",
+      "departure_time": "14:02:00",
+      "stop_id": "N14",
+      "stop_sequence": 11
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:04:00",
+      "departure_time": "14:04:00",
+      "stop_id": "N13",
+      "stop_sequence": 12
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:05:00",
+      "departure_time": "14:05:00",
+      "stop_id": "N12",
+      "stop_sequence": 13
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:06:00",
+      "departure_time": "14:06:00",
+      "stop_id": "N11",
+      "stop_sequence": 14
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:07:00",
+      "departure_time": "14:07:00",
+      "stop_id": "N10",
+      "stop_sequence": 15
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:10:00",
+      "departure_time": "14:10:00",
+      "stop_id": "N9",
+      "stop_sequence": 16
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:13:00",
+      "departure_time": "14:13:00",
+      "stop_id": "N8",
+      "stop_sequence": 17
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:14:00",
+      "departure_time": "14:14:00",
+      "stop_id": "N7",
+      "stop_sequence": 18
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:15:00",
+      "departure_time": "14:15:00",
+      "stop_id": "N6",
+      "stop_sequence": 19
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:16:00",
+      "departure_time": "14:16:00",
+      "stop_id": "N5",
+      "stop_sequence": 20
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:21:00",
+      "departure_time": "14:21:00",
+      "stop_id": "N4",
+      "stop_sequence": 21
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:24:00",
+      "departure_time": "14:24:00",
+      "stop_id": "N2",
+      "stop_sequence": 22
+    },
+    {
+      "trip_id": "L.8883_SERVICE_3_12",
+      "arrival_time": "14:30:00",
+      "departure_time": "14:30:00",
+      "stop_id": "N1",
+      "stop_sequence": 23
+    }
+  ],
+  "shapePts": [
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.0083389,
+      "lon": -7.55364084,
+      "seq": 1
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.0100937,
+      "lon": -7.56868792,
+      "seq": 2
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.0297394,
+      "lon": -7.57063389,
+      "seq": 3
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.0750084,
+      "lon": -7.60460806,
+      "seq": 4
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.0870476,
+      "lon": -7.60618019,
+      "seq": 5
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1019402,
+      "lon": -7.61389399,
+      "seq": 6
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1179504,
+      "lon": -7.61914492,
+      "seq": 7
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.119812,
+      "lon": -7.62628841,
+      "seq": 8
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1425781,
+      "lon": -7.62904692,
+      "seq": 9
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1514702,
+      "lon": -7.63264513,
+      "seq": 10
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1592903,
+      "lon": -7.63579082,
+      "seq": 11
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1716309,
+      "lon": -7.63743019,
+      "seq": 12
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1796913,
+      "lon": -7.63997698,
+      "seq": 13
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1868591,
+      "lon": -7.64230299,
+      "seq": 14
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.1965599,
+      "lon": -7.64433098,
+      "seq": 15
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.2106209,
+      "lon": -7.65294695,
+      "seq": 16
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.2289505,
+      "lon": -7.66095686,
+      "seq": 17
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.2457809,
+      "lon": -7.66814423,
+      "seq": 18
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.2542992,
+      "lon": -7.66969919,
+      "seq": 19
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.2612686,
+      "lon": -7.67093515,
+      "seq": 20
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.2811089,
+      "lon": -7.67576265,
+      "seq": 21
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.2906113,
+      "lon": -7.67937708,
+      "seq": 22
+    },
+    {
+      "shape_id": "L.8883_dir0_L1",
+      "lat": 43.3024483,
+      "lon": -7.67521,
+      "seq": 23
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.3024483,
+      "lon": -7.67521,
+      "seq": 1
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.2906113,
+      "lon": -7.67937708,
+      "seq": 2
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.2812691,
+      "lon": -7.67605782,
+      "seq": 3
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.2612686,
+      "lon": -7.67093515,
+      "seq": 4
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.2542992,
+      "lon": -7.66969919,
+      "seq": 5
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.2457809,
+      "lon": -7.66814423,
+      "seq": 6
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.2289505,
+      "lon": -7.66095686,
+      "seq": 7
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.2106209,
+      "lon": -7.65294695,
+      "seq": 8
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1965599,
+      "lon": -7.64433098,
+      "seq": 9
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1868591,
+      "lon": -7.64230299,
+      "seq": 10
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1796913,
+      "lon": -7.63997698,
+      "seq": 11
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1716309,
+      "lon": -7.63743019,
+      "seq": 12
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1592903,
+      "lon": -7.63579082,
+      "seq": 13
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1514702,
+      "lon": -7.63264513,
+      "seq": 14
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1425781,
+      "lon": -7.62904692,
+      "seq": 15
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.119812,
+      "lon": -7.62628841,
+      "seq": 16
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1179504,
+      "lon": -7.61914492,
+      "seq": 17
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.1019402,
+      "lon": -7.61389399,
+      "seq": 18
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.0870476,
+      "lon": -7.60618019,
+      "seq": 19
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.0750084,
+      "lon": -7.60460806,
+      "seq": 20
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.0297394,
+      "lon": -7.57063389,
+      "seq": 21
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.0100937,
+      "lon": -7.56868792,
+      "seq": 22
+    },
+    {
+      "shape_id": "L.8883_dir1_L2",
+      "lat": 43.0083389,
+      "lon": -7.55364084,
+      "seq": 23
+    }
+  ],
+  "extras": {
+    "source": "addlink"
+  }
+}

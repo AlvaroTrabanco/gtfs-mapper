@@ -1,0 +1,77 @@
+name: Flixbus GTFS — nightly build
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "15 4 * * *"   # Daily at 04:15 UTC
+  push:
+    paths:
+      - "automation/overrides.json"
+      - "automation/rebuild-flixbus.js"
+      - ".github/workflows/flixbus.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build compiled GTFS into site/
+        run: |
+          mkdir -p site
+          OUT_DIR=site OUT_ZIP=flixbus_eu_compiled.zip node automation/rebuild-flixbus.js
+
+      - name: Create index.html
+        run: |
+          cat > site/index.html << 'EOF'
+          <!doctype html><meta charset="utf-8">
+          <title>Flixbus GTFS (compiled)</title>
+          <h1>Flixbus GTFS (compiled)</h1>
+          <ul>
+            <li><a href="flixbus_eu_compiled.zip">flixbus_eu_compiled.zip</a></li>
+            <li><a href="report.json">report.json</a></li>
+          </ul>
+          <p>Last updated: <span id="ts"></span></p>
+          <script>document.getElementById('ts').textContent = new Date().toISOString();</script>
+          EOF
+      
+      - name: Upload build artifact (for the run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: flixbus-site
+          path: site/
+          retention-days: 7
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

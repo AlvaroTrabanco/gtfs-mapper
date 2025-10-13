@@ -1,0 +1,12 @@
+name: CI Sanity
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ AutomaticImports-fix ]
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Hello from $GITHUB_REF on ${{ github.repository }}!"

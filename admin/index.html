@@ -1,0 +1,143 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GTFS Admin — Upload overrides.json</title>
+
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+  label { display: block; margin: 12px 0 6px; font-weight: 600; }
+  input[type="password"], input[type="text"], textarea { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; }
+  button { padding: 8px 14px; border-radius: 8px; border: 1px solid #d1d5db; cursor: pointer; background: white; }
+  button.primary { background: #0ea5e9; color: white; border-color: #0284c7; }
+  .muted { color: #6b7280; font-size: 13px; }
+  pre { background: #f8fafc; padding: 12px; border-radius: 8px; overflow: auto; }
+</style>
+
+<h1>GTFS Admin — Upload <code>overrides.json</code></h1>
+<p class="muted">This commits to your GitHub repo and triggers the nightly Action.</p>
+
+<div class="card">
+  <form id="uploader">
+    <label>Admin key</label>
+    <input type="password" id="key" placeholder="Your ADMIN_KEY" required />
+
+    <label>overrides.json</label>
+    <input type="file" id="file" accept="application/json" required />
+
+    <label>Commit message <span class="muted">(optional)</span></label>
+    <input type="text" id="msg" placeholder="chore: update overrides.json via admin uploader" />
+
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <button type="submit" class="primary">Upload & Commit</button>
+      <button type="button" id="previewBtn">Preview JSON</button>
+      <button id="clearSaved" type="button">Clear saved form</button>
+    </div>
+  </form>
+
+  <div id="result" style="margin-top:16px;"></div>
+</div>
+
+<script>
+  const fnUrl = "/.netlify/functions/upload-overrides";
+
+  const form = document.getElementById("uploader");
+  const result = document.getElementById("result");
+  const previewBtn = document.getElementById("previewBtn");
+  const fileInput = document.getElementById("file");
+
+  let lastJsonText = null;
+
+  previewBtn.addEventListener("click", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) { alert("Pick a file first."); return; }
+    const text = await file.text();
+    lastJsonText = text;
+    try {
+      const obj = JSON.parse(text);
+      result.innerHTML = "<h3>Preview</h3><pre>" + JSON.stringify(obj, null, 2) + "</pre>";
+    } catch {
+      result.innerHTML = "<div style='color:#b91c1c'>Invalid JSON.</div>";
+    }
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    result.textContent = "Uploading…";
+
+    try {
+      const key = document.getElementById("key").value.trim();
+      const msg = document.getElementById("msg").value.trim();
+
+      const file = fileInput.files?.[0];
+      if (!file) { result.textContent = "Pick a file."; return; }
+
+      const overridesJson = lastJsonText || await file.text();
+
+      const res = await fetch(fnUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key, overridesJson, commitMessage: msg || undefined })
+      });
+
+      const text = await res.text();
+      let payload;
+      try { payload = JSON.parse(text); } catch { payload = { ok: false, error: text }; }
+
+      if (!res.ok || !payload.ok) {
+        result.innerHTML = "<div style='color:#b91c1c'>Error:</div><pre>" + (payload.error || text) + "</pre>";
+        return;
+      }
+
+      result.innerHTML = `
+        <div style="color:#065f46">Success!</div>
+        <ul>
+          <li>Path: <code>${payload.path}</code></li>
+          <li>Branch: <code>${payload.branch}</code></li>
+          <li>Commit: <code>${payload.commit}</code></li>
+          ${payload.html_url ? `<li><a href="${payload.html_url}" target="_blank">View file on GitHub</a></li>` : ""}
+        </ul>
+        <p class="muted">Your GitHub Action will pick this up automatically.</p>
+      `;
+    } catch (err) {
+      result.innerHTML = "<div style='color:#b91c1c'>Error:</div><pre>" + err.message + "</pre>";
+    }
+  });
+
+  // keys we want to remember locally (safe ones only)
+  const FIELDS = ["adminKey", "repoOwner", "repoName", "targetBranch", "overridesPath", "commitMessage", "overridesJson"];
+  const LS_KEY = "gtfs_admin_uploader_v1";
+
+  function loadSaved() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+      FIELDS.forEach(k => {
+        const el = document.getElementById(k);
+        if (el && saved[k] != null) el.value = saved[k];
+      });
+    } catch {}
+  }
+
+  function saveNow() {
+    const bag = {};
+    FIELDS.forEach(k => {
+      const el = document.getElementById(k);
+      if (el) bag[k] = el.value;
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify(bag));
+  }
+
+  window.addEventListener("DOMContentLoaded", () => {
+    loadSaved();
+    FIELDS.forEach(k => {
+      const el = document.getElementById(k);
+      if (el) el.addEventListener("input", saveNow);
+    });
+    // optional: clear button
+    const clearBtn = document.getElementById("clearSaved");
+    if (clearBtn) clearBtn.addEventListener("click", () => {
+      localStorage.removeItem(LS_KEY);
+      FIELDS.forEach(k => { const el = document.getElementById(k); if (el) el.value = ""; });
+    });
+  });
+</script>

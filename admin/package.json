@@ -1,0 +1,13 @@
+{
+  "name": "gtfs-admin-uploader",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "@octokit/rest": "^21.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
