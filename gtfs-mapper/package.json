@@ -1,18 +1,21 @@
 {
-  "name": "gtfs-builder",
+  "name": "gtfs-mapper",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "dev": "node ./node_modules/vite/bin/vite.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "flix:build": "node automation/rebuild-flixbus.js",
+    "flix:daily": "node automation/rebuild-flixbus.js"
   },
   "dependencies": {
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
+    "node-fetch": "^3.3.2",
     "papaparse": "^5.5.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
