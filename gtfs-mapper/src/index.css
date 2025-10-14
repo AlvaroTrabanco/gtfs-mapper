@@ -108,7 +108,6 @@ body {
 /* Map block */
 .map-wrap { height: 440px; border-radius: var(--radius); overflow: hidden; }
 .leaflet-container { height: 100%; width: 100%; }
-.map-wrap.is-drawing .leaflet-container { cursor: crosshair; }
 .map-wrap .leaflet-container {
   height: 520px;
   width: 100%;

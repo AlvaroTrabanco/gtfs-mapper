@@ -46,7 +46,13 @@ type ODRestriction = {
   pickupOnlyTo?: string[];     // destinations where boarding here is allowed
 };
 type RestrictionsMap = Record<string, ODRestriction>;
+
+/** (legacy/unused) Per-stop defaults granularity; keeping for clarity */
+type StopDefaults = { dwell?: number; pickup?: number; dropoff?: number };
+
+/** ✅ NEW: the missing type */
 type StopDefaultsMap = Record<string, ODRestriction>;
+
 const keyTS = (trip_id: string, stop_id: string) => `${trip_id}::${stop_id}`;
 
 /* ---------------- Props ---------------- */
@@ -60,7 +66,7 @@ type PatternMatrixProps = {
   initialRestrictions?: RestrictionsMap;
   onRestrictionsChange?: (next: RestrictionsMap) => void;
 
-  /** NEW: per-stop defaults */
+  /** per-stop defaults */
   initialStopDefaults?: StopDefaultsMap;
   onStopDefaultsChange?: (next: StopDefaultsMap) => void;
 
@@ -188,15 +194,7 @@ function StopRuleEditor({
   return (
     <div
       ref={ref}
-      style={{
-        // minWidth: 320,
-        // padding: 10,
-        // border: "1px solid #ddd",
-        // boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
-        // background: "#fff",
-        // borderRadius: 8,
-        // zIndex: 9999,
-      }}
+      style={{}}
       role="dialog"
       aria-label="Bulk stop rule editor"
     >
@@ -317,18 +315,7 @@ function StopBulkRuleEditor({
   return (
     <div
       ref={ref}
-      style={{
-        // position: "absolute",
-        // zIndex: 9999,
-        // top: "calc(100% + 6px)",
-        // left: 0,
-        // minWidth: 320,
-        // padding: 10,
-        // border: "1px solid #ddd",
-        // boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
-        // background: "#fff",
-        // borderRadius: 8,
-      }}
+      style={{}}
       role="dialog"
       aria-label="Bulk stop rule editor"
     >
@@ -416,9 +403,9 @@ export default function PatternMatrix({
     () => selectedRouteId ? trips.filter(t => t.route_id === selectedRouteId) : trips,
     [trips, selectedRouteId]
   );
-    // one anchor for the cell editor
-  const [cellAnchorEl, setCellAnchorEl] = useState<HTMLElement | null>(null);
 
+  // one anchor for the cell editor
+  const [cellAnchorEl, setCellAnchorEl] = useState<HTMLElement | null>(null);
   // one anchor for the bulk (row) editor
   const [bulkAnchorEl, setBulkAnchorEl] = useState<HTMLElement | null>(null);
 
@@ -434,11 +421,13 @@ export default function PatternMatrix({
     return m;
   }, [services]);
 
+  const tripIdSet = useMemo(() => new Set(tripsFiltered.map(t => t.trip_id)), [tripsFiltered]);
+
   // Map trip -> ordered stop_ids
   const tripStops = useMemo(() => {
     const grouped = new Map<string, StopTime[]>();
     for (const st of stopTimes) {
-      if (!tripsFiltered.find(t => t.trip_id === st.trip_id)) continue;
+      if (!tripIdSet.has(st.trip_id)) continue;
       (grouped.get(st.trip_id) ?? grouped.set(st.trip_id, []).get(st.trip_id)!).push(st);
     }
     const byTrip = new Map<string, string[]>();
@@ -447,14 +436,14 @@ export default function PatternMatrix({
       byTrip.set(tid, arr.map(x => x.stop_id));
     }
     return byTrip;
-  }, [stopTimes, tripsFiltered]);
+  }, [stopTimes, tripIdSet]);
 
   // First departure time per trip (for sorting)
   const firstDep = useMemo(() => {
     const m = new Map<string, string>();
     const grouped = new Map<string, StopTime[]>();
     for (const st of stopTimes) {
-      if (!tripsFiltered.find(t => t.trip_id === st.trip_id)) continue;
+      if (!tripIdSet.has(st.trip_id)) continue;
       (grouped.get(st.trip_id) ?? grouped.set(st.trip_id, []).get(st.trip_id)!).push(st);
     }
     for (const [tid, arr] of grouped.entries()) {
@@ -462,7 +451,7 @@ export default function PatternMatrix({
       m.set(tid, arr[0]?.departure_time ?? "");
     }
     return m;
-  }, [stopTimes, tripsFiltered]);
+  }, [stopTimes, tripIdSet]);
 
   // Sort trips: by service_id, then by first departure (earlier first)
   const orderedTrips = useMemo(() => {
@@ -497,11 +486,29 @@ export default function PatternMatrix({
   const getUiTime = (trip_id: string, stop_id: string, fallback: string) =>
     localTimes[keyTS(trip_id, stop_id)] ?? fallback;
 
-  const [restrictions, setRestrictions] = useState<RestrictionsMap>(initialRestrictions ?? {});
-  useEffect(() => { onRestrictionsChange?.(restrictions); }, [restrictions, onRestrictionsChange]);
-  /** NEW: per-stop saved defaults */
-  const [stopDefaults, setStopDefaults] = useState<StopDefaultsMap>(initialStopDefaults ?? {});
-  useEffect(() => { onStopDefaultsChange?.(stopDefaults); }, [stopDefaults, onStopDefaultsChange]);
+// (optional but good) initialize from props with a function initializer
+const [restrictions, setRestrictions] = useState<RestrictionsMap>(() => initialRestrictions ?? {});
+const [stopDefaults, setStopDefaults] = useState<StopDefaultsMap>(() => initialStopDefaults ?? {});
+
+// prevent feedback loop when parent re-renders on every set
+const sentRestrictionsRef = useRef<string>("");
+useEffect(() => {
+  const snapshot = JSON.stringify(restrictions);
+  if (snapshot !== sentRestrictionsRef.current) {
+    onRestrictionsChange?.(restrictions);
+    sentRestrictionsRef.current = snapshot;
+  }
+}, [restrictions, onRestrictionsChange]);
+
+const sentDefaultsRef = useRef<string>("");
+useEffect(() => {
+  const snapshot = JSON.stringify(stopDefaults);
+  if (snapshot !== sentDefaultsRef.current) {
+    onStopDefaultsChange?.(stopDefaults);
+    sentDefaultsRef.current = snapshot;
+  }
+}, [stopDefaults, onStopDefaultsChange]);
+
 
   const [openCellKey, setOpenCellKey] = useState<string | null>(null);
   const [openBulkKey, setOpenBulkKey] = useState<string | null>(null);
@@ -549,7 +556,7 @@ export default function PatternMatrix({
       }
       return next;
     });
-    // NEW: persist row default for this stop_id
+    // persist row default for this stop_id
     if (bulkMode === "normal") {
       setStopDefaults(prev => {
         const n = { ...prev };
@@ -576,9 +583,9 @@ export default function PatternMatrix({
 
     // union of stop_ids with baseline = first trip in this group
     const computeOrderedStopIds = () => {
-    const base = groupTripStops.get(g.trips[0]?.trip_id ?? "") ?? [];
-    const set = new Set(base);
-    for (let i = 1; i < g.trips.length; i++) {
+      const base = groupTripStops.get(g.trips[0]?.trip_id ?? "") ?? [];
+      const set = new Set(base);
+      for (let i = 1; i < g.trips.length; i++) {
         for (const sid of (groupTripStops.get(g.trips[i].trip_id) ?? [])) set.add(sid);
       }
       return Array.from(set);
@@ -641,7 +648,6 @@ export default function PatternMatrix({
                 const upstreamPool = Array.from(upstreamUnion).map(id => stopById.get(id)).filter((x): x is Stop => Boolean(x));
                 const downstreamPool = Array.from(downstreamUnion).map(id => stopById.get(id)).filter((x): x is Stop => Boolean(x));
 
-
                 return (
                   <tr key={sid}>
                     <td style={{ padding: 8, borderBottom: "1px solid #f2f2f2", position: "sticky", left: 0, background: "#fff", zIndex: 2 }}>
@@ -651,10 +657,10 @@ export default function PatternMatrix({
                           title="Edit rule for the whole row (all departures at this stop)"
                           onClick={(e) => {
                             setBulkAnchorEl(e.currentTarget as HTMLElement);
-                            const rowKey = `${gi}::${sid}`;
-                            setOpenBulkKey((cur: string | null) => (cur === rowKey ? null : rowKey));
+                            const rowKeyInner = `${gi}::${sid}`;
+                            setOpenBulkKey((cur: string | null) => (cur === rowKeyInner ? null : rowKeyInner));
 
-                            // NEW: preload from saved defaults for this stop (if any)
+                            // preload from saved defaults for this stop (if any)
                             const def = stopDefaults[sid];
                             if (!def || def.mode === "normal") {
                               setBulkMode("normal");
@@ -672,8 +678,8 @@ export default function PatternMatrix({
                             }
                           }}
                           style={{ border: "1px solid #ddd", background: "#fff", borderRadius: 6, padding: "2px 6px", fontSize: 11, cursor: "pointer" }}
-                          >
-                            ⚙︎
+                        >
+                          ⚙︎
                         </button>
 
                         <PortalPopover
@@ -738,8 +744,8 @@ export default function PatternMatrix({
                               title="Stop rule"
                               onClick={(e) => {
                                 setCellAnchorEl(e.currentTarget as HTMLElement);
-                                const cellKey = `${gi}::${t.trip_id}::${sid}`;
-                                setOpenCellKey((cur: string | null) => (cur === cellKey ? null : cellKey));
+                                const cellKeyInner = `${gi}::${t.trip_id}::${sid}`;
+                                setOpenCellKey((cur: string | null) => (cur === cellKeyInner ? null : cellKeyInner));
                               }}
                               style={{ border: "1px solid #ddd", background: "#fff", borderRadius: 6, padding: "2px 6px", fontSize: 11, cursor: "pointer" }}>
                               {rule === "pickup" ? "⭱" : rule === "dropoff" ? "⭳" : rule === "custom" ? "⇄" : "⤵︎"}
