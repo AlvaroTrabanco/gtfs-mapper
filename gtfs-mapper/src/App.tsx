@@ -51,7 +51,6 @@ type ShapePt = { shape_id: string; lat: number; lon: number; seq: number };
 type StopTimesByTrip = Map<string, StopTime[]>;
 type Agency = { agency_id: string; agency_name: string; agency_url: string; agency_timezone: string };
 
-type Issue = { level: "error" | "warning"; file: string; row?: number; message: string };
 type Banner = { kind: "success" | "error" | "info"; text: string } | null;
 
 type StopDefaultsMap = Record<string, { 
@@ -202,155 +201,6 @@ function decodePolyline(polyline: string, precision = 1e-5): [number, number][] 
   return coords;
 }
 
-/** ---------- Export GTFS (zip, slim + compressed) ---------- */
-
-  
-async function exportGTFSZip(payload: {
-  agencies: Agency[]; stops: Stop[]; routes: RouteRow[]; services: Service[];
-  trips: Trip[]; stopTimes: StopTime[]; shapePts: ShapePt[];
-}, opts?: {
-  onlyRoutes?: Set<string>;     // if provided, export only these route_ids (and their deps)
-  pruneUnused?: boolean;        // default true
-  roundCoords?: boolean;        // default true
-  decimateShapes?: boolean;     // default true
-  maxShapePts?: number;         // hard cap per shape after decimation (default 2000)
-}) {
-  const {
-    onlyRoutes,
-    pruneUnused = true,
-    roundCoords = true,
-    decimateShapes = true,
-    maxShapePts = 2000,
-  } = (opts ?? {});
-
-  // 1) Start from payload; optionally filter to selected routes
-  const baseRoutes = onlyRoutes
-    ? payload.routes.filter(r => onlyRoutes.has(r.route_id))
-    : payload.routes.slice();
-
-  // Quick maps for lookup
-  const tripsByRoute = new Map<string, Trip[]>();
-  for (const t of payload.trips) {
-    if (!tripsByRoute.has(t.route_id)) tripsByRoute.set(t.route_id, []);
-    tripsByRoute.get(t.route_id)!.push(t);
-  }
-
-  const stopTimesByTrip = new Map<string, StopTime[]>();
-  for (const st of payload.stopTimes) {
-    if (!stopTimesByTrip.has(st.trip_id)) stopTimesByTrip.set(st.trip_id, []);
-    stopTimesByTrip.get(st.trip_id)!.push(st);
-  }
-
-  
-
-  // 2) Build reachability sets from the chosen routes
-  const keepRouteIds = new Set(baseRoutes.map(r => r.route_id));
-  const keepTripIds  = new Set<string>();
-  const keepStopIds  = new Set<string>();
-  const keepSvcIds   = new Set<string>();
-  const keepShapeIds = new Set<string>();
-
-  for (const r of baseRoutes) {
-    const rTrips = tripsByRoute.get(r.route_id) ?? [];
-    for (const t of rTrips) {
-      keepTripIds.add(t.trip_id);
-      if (t.service_id) keepSvcIds.add(t.service_id);
-      if (t.shape_id) keepShapeIds.add(t.shape_id);
-
-      const sts = stopTimesByTrip.get(t.trip_id) ?? [];
-      for (const st of sts) {
-        if (!((st.arrival_time?.trim()) || (st.departure_time?.trim()))) continue; // skip blank rows
-        keepStopIds.add(st.stop_id);
-      }
-    }
-  }
-
-  // 3) Prune if requested
-  const agenciesOut = payload.agencies.length ? payload.agencies.slice() : [{
-    agency_id: "agency_1",
-    agency_name: "Agency",
-    agency_url: "https://example.com",
-    agency_timezone: defaultTZ,
-  }];
-
-  const routesOut = baseRoutes;
-  const tripsOut  = pruneUnused
-    ? payload.trips.filter(t => keepTripIds.has(t.trip_id))
-    : payload.trips.slice();
-
-  const stopTimesOut = (pruneUnused
-    ? payload.stopTimes.filter(st => keepTripIds.has(st.trip_id))
-    : payload.stopTimes.slice()
-  ).filter(st => !!(st.arrival_time?.trim() || st.departure_time?.trim())); // also strip fully-blank rows
-
-  const stopsOut = pruneUnused
-    ? payload.stops.filter(s => keepStopIds.has(s.stop_id))
-    : payload.stops.slice();
-
-  const servicesOut = pruneUnused
-    ? payload.services.filter(s => keepSvcIds.has(s.service_id))
-    : payload.services.slice();
-
-  // 4) Shapes: filter + shrink
-  let shapesOut = pruneUnused
-    ? payload.shapePts.filter(p => keepShapeIds.has(p.shape_id))
-    : payload.shapePts.slice();
-
-  if (roundCoords) {
-    const round5 = (x: number) => Math.round(x * 1e5) / 1e5; // ~1.1 m
-    shapesOut = shapesOut.map(p => ({ ...p, lat: round5(p.lat), lon: round5(p.lon) }));
-  }
-
-  if (decimateShapes) {
-    const groups = new Map<string, ShapePt[]>();
-    for (const p of shapesOut) {
-      if (!groups.has(p.shape_id)) groups.set(p.shape_id, []);
-      groups.get(p.shape_id)!.push(p);
-    }
-    const slim: ShapePt[] = [];
-    for (const [sid, arr] of groups) {
-      const sorted = arr.slice().sort((a,b)=>a.seq-b.seq);
-      if (sorted.length <= maxShapePts) {
-        slim.push(...sorted);
-      } else {
-        const step = Math.ceil(sorted.length / maxShapePts);
-        for (let i = 0; i < sorted.length; i += step) slim.push(sorted[i]);
-        const last = sorted[sorted.length - 1];
-        const packedLast = slim[slim.length - 1];
-        if (!packedLast || packedLast.seq !== last.seq) slim.push(last);
-      }
-    }
-    shapesOut = slim;
-  }
-
-  // 5) Build CSVs
-  const zip = new JSZip();
-
-  zip.file("agency.txt", csvify(agenciesOut, ["agency_id","agency_name","agency_url","agency_timezone"]));
-  zip.file("stops.txt", csvify(
-    stopsOut.map(s => ({ stop_id: s.stop_id, stop_name: s.stop_name, stop_lat: s.stop_lat, stop_lon: s.stop_lon })),
-    ["stop_id","stop_name","stop_lat","stop_lon"]
-  ));
-  zip.file("routes.txt", csvify(routesOut, ["route_id","route_short_name","route_long_name","route_type","agency_id"]));
-  zip.file("calendar.txt", csvify(servicesOut, ["service_id","monday","tuesday","wednesday","thursday","friday","saturday","sunday","start_date","end_date"]));
-  zip.file("trips.txt", csvify(tripsOut, ["route_id","service_id","trip_id","trip_headsign","shape_id","direction_id"]));
-  zip.file("stop_times.txt", csvify(stopTimesOut, ["trip_id","arrival_time","departure_time","stop_id","stop_sequence"]));
-
-  if (shapesOut.length) {
-    zip.file("shapes.txt", csvify(
-      shapesOut.map(p => ({ shape_id: p.shape_id, shape_pt_lat: p.lat, shape_pt_lon: p.lon, shape_pt_sequence: p.seq })),
-      ["shape_id","shape_pt_lat","shape_pt_lon","shape_pt_sequence"]
-    ));
-  }
-
-  // 6) Compressed ZIP
-  const blob = await zip.generateAsync({
-    type: "blob",
-    compression: "DEFLATE",
-    compressionOptions: { level: 9 }
-  });
-  saveAs(blob, "gtfs.zip");
-}
 
 /** ---------- Map bits ---------- */
 
@@ -559,6 +409,12 @@ function PaginatedEditableTable<T extends Record<string, any>>({
 
   useEffect(() => { setPage(1); }, [pageSize, query, visibleIndex, rows]);
 
+  // ✅ Prevent crashes if indices go stale — only keep valid ones
+  const safePageIdx = useMemo(
+    () => pageIdx.filter((gi) => rows[gi] !== undefined),
+    [pageIdx, rows]
+  );
+
   const edit = (globalIndex: number, key: string, v: string) => {
     const next = rows.slice();
     next[globalIndex] = { ...next[globalIndex], [key]: v };
@@ -620,13 +476,16 @@ function PaginatedEditableTable<T extends Record<string, any>>({
               </tr>
             </thead>
             <tbody>
-              {pageIdx.length ? pageIdx.map((gi) => {
+              {safePageIdx.length ? safePageIdx.map((gi) => {
                 const r = rows[gi];
-                const isSelected = (selectedPredicate && r) ? !!selectedPredicate(r) : false;
+                if (!r) return null;
+
+                const isSelected = selectedPredicate ? !!selectedPredicate(r) : false;
+                
                 return (
                   <tr
                     key={gi}
-                    onClick={(e) => onRowClick ? onRowClick(r, e) : undefined}
+                    onClick={(e) => onRowClick?.(r, e)}
                     style={{
                       cursor: onRowClick ? "pointer" : "default",
                       background: isSelected ? "rgba(232, 242, 255, 0.7)" : "transparent",
@@ -639,7 +498,7 @@ function PaginatedEditableTable<T extends Record<string, any>>({
                         {isSelected ? (
                           <button
                             title="Deselect"
-                            onClick={(e) => { e.stopPropagation(); onIconClick && onIconClick(r); }}
+                            onClick={(e) => { e.stopPropagation(); onIconClick?.(r); }}
                             style={{ border:"none", background:"transparent", cursor:"pointer", fontSize:14 }}
                           >
                             ✓
@@ -906,7 +765,6 @@ export default function App() {
   const [shapePts, setShapePts] = useState<ShapePt[]>([]);
 
   /** UI */
-  const [nextStopName, setNextStopName] = useState<string>("");
   const [showRoutes, setShowRoutes] = useState<boolean>(true);
 
   const [showStops, setShowStops] = useState<boolean>(true);
@@ -918,8 +776,8 @@ export default function App() {
     x: number; y: number; lat: number; lng: number;
   } | null>(null);
 
-const addStopAt = useCallback((lat: number, lng: number) => {
-  const base = nextStopName?.trim() || "Stop";
+  const addStopAt = useCallback((lat: number, lng: number) => {
+    const base = "Stop";
   setStops(prev => {
     const numStr = (prev.length + 1).toString().padStart(3, "0");
     const newStop: Stop = {
@@ -933,18 +791,12 @@ const addStopAt = useCallback((lat: number, lng: number) => {
     setSelectedStopId(newStop.stop_id);
     return [...prev, newStop];
   });
-}, [nextStopName]);
+  }, []);
 
-const handleAddStopAtCenter = () => {
-  if (!mapCenter) return;
-  addStopAt(mapCenter.lat, mapCenter.lng);
-};
+
 
   // --- Export options (UI) ---
   const [exportOnlySelectedRoutes, setExportOnlySelectedRoutes] = useState<boolean>(false);
-  const [exportPruneUnused, setExportPruneUnused] = useState<boolean>(true);
-  const [exportRoundCoords, setExportRoundCoords] = useState<boolean>(true);
-  const [exportDecimateShapes, setExportDecimateShapes] = useState<boolean>(true);
 
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set()); // NEW multi-select
@@ -1195,7 +1047,6 @@ const handleAddStopAtCenter = () => {
   const [clearSignal, setClearSignal] = useState(0);
 
   /** Validation & banner */
-  const [validation, setValidation] = useState<{ errors: Issue[]; warnings: Issue[] }>({ errors: [], warnings: [] });
   const [banner, setBanner] = useState<Banner>(null);
   // Busy/lock UI while long ops run
   const [isBusy, setIsBusy] = useState(false);
@@ -1349,7 +1200,24 @@ const handleAddStopAtCenter = () => {
   };
 
   const addBlankStopTimeRow = () => {
-    const { targetTrip, afterSeq } = pickTargetTripAndAfterSeq();
+    // Prefer the trip chosen in the dropdown, else fall back to existing logic
+    const preferredTripId = activeTripIdForTimes ?? undefined;
+
+    const { targetTrip, afterSeq } = ((): { targetTrip?: Trip; afterSeq: number } => {
+      if (preferredTripId) {
+        const t = trips.find(tt => tt.trip_id === preferredTripId);
+        if (t) {
+          const inTrip = stopTimes
+            .filter(r => r.trip_id === t.trip_id)
+            .slice()
+            .sort((a,b) => a.stop_sequence - b.stop_sequence);
+          return { targetTrip: t, afterSeq: inTrip.length ? inTrip[inTrip.length - 1].stop_sequence : 0 };
+        }
+      }
+      // fallback to your existing picker
+      return pickTargetTripAndAfterSeq();
+    })();
+
     if (!targetTrip) {
       setBanner({ kind: "info", text: "Create a trip first." });
       setTimeout(() => setBanner(null), 1500);
@@ -1415,7 +1283,7 @@ const addAgencyRow = () => {
 };
 
 const addStopRow = () => {
-  const base = nextStopName?.trim() || "Stop";
+  const base = "Stop";
   const numStr = (stops.length + 1).toString().padStart(3, "0");
   const row: Stop = {
     uid: uuidv4(),
@@ -1807,10 +1675,62 @@ const addStopTimeRow = () => {
   
 
   /** Project import/export (JSON) */
-  const exportProject = () => {
-    const blob = new Blob([JSON.stringify({ agencies, stops, routes, services, trips, stopTimes, shapePts }, null, 2)], { type: "application/json" });
-    saveAs(blob, "project.json");
-  };
+  const exportProjectJSON = useCallback(() => {
+    try {
+      const payload = {
+        agencies,
+        stops,
+        routes,
+        services,
+        trips,
+        stopTimes,
+        shapePts,
+        // include your extras so custom rules & mappings are saved
+        project: {
+          extras: {
+            restrictions: project?.extras?.restrictions ?? {},
+            stopDefaults: project?.extras?.stopDefaults ?? {},
+            shapeByRoute: project?.extras?.shapeByRoute ?? {},
+          },
+        },
+        // small version tag can help future migrations
+        _meta: { kind: "gtfs_builder_project", version: 1 },
+      };
+
+      const json = JSON.stringify(payload, null, 2);
+      const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+
+      // primary path
+      if (typeof saveAs === "function") {
+        saveAs(blob, "project.json");
+        return;
+      }
+
+      // fallback (Safari / odd bundlers)
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "project.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export project failed:", err);
+      alert("Export failed. See console for details.");
+    }
+  }, [
+    agencies,
+    stops,
+    routes,
+    services,
+    trips,
+    stopTimes,
+    shapePts,
+    project?.extras?.restrictions,
+    project?.extras?.stopDefaults,
+    project?.extras?.shapeByRoute,
+  ]);
   const importProject = async (file: File) =>
     withBusy("Loading project…", async () => {
       try {
@@ -2234,6 +2154,20 @@ const addStopTimeRow = () => {
     return pool.map(t => t.trip_id).sort();
   }, [trips, selectedRouteId, activeServiceIds]);
 
+  // Single-block stop_times: which trip is shown
+  const [activeTripIdForTimes, setActiveTripIdForTimes] = useState<string | null>(null);
+
+  // Keep activeTripIdForTimes valid when available trip_ids change
+  useEffect(() => {
+    if (!tripIdsForStopTimes.length) {
+      if (activeTripIdForTimes !== null) setActiveTripIdForTimes(null);
+      return;
+    }
+    if (!activeTripIdForTimes || !tripIdsForStopTimes.includes(activeTripIdForTimes)) {
+      setActiveTripIdForTimes(tripIdsForStopTimes[0]);
+    }
+  }, [tripIdsForStopTimes, activeTripIdForTimes]);
+
   const tripsByRoute = useMemo(() => {
     const m = new Map<string, Trip[]>();
     for (const t of trips) {
@@ -2404,43 +2338,7 @@ const addStopTimeRow = () => {
     if (changed) setActiveServiceIds(next);
   }, [selectedRouteId, trips]); 
 
-  /** ---------- Validation ---------- */
-  function validateFeed(ctx: {
-    agencies: Agency[]; stops: Stop[]; routes: RouteRow[]; services: Service[];
-    trips: Trip[]; stopTimes: StopTime[]; shapePts: ShapePt[];
-  }) {
-    const errors: Issue[] = [];
-    const warnings: Issue[] = [];
-
-    const req = <T, K extends keyof T>(rows: T[], key: K, file: string) => {
-      rows.forEach((r, i) => { const v = (r as any)[key]; if (v === undefined || v === null || v === "") errors.push({ level: "error", file, row: i + 1, message: `Missing ${String(key)}` }); });
-    };
-    req(ctx.agencies, "agency_id", "agency.txt");
-    req(ctx.stops, "stop_id", "stops.txt");
-    req(ctx.routes, "route_id", "routes.txt");
-    req(ctx.services, "service_id", "calendar.txt");
-    req(ctx.trips, "trip_id", "trips.txt");
-    req(ctx.stopTimes, "trip_id", "stop_times.txt");
-
-    const dup = <T, K extends keyof T>(rows: T[], key: K, file: string) => {
-      const seen = new Set<any>();
-      rows.forEach((r, i) => { const k = (r as any)[key]; if (seen.has(k)) errors.push({ level: "error", file, row: i + 1, message: `Duplicate ${String(key)}: ${k}` }); seen.add(k); });
-    };
-    dup(ctx.stops, "stop_id", "stops.txt");
-    dup(ctx.routes, "route_id", "routes.txt");
-    dup(ctx.trips, "trip_id", "trips.txt");
-    dup(ctx.services, "service_id", "calendar.txt");
-
-    return { errors, warnings };
-  }
-  const runValidation = () => {
-    const res = validateFeed({ agencies, stops, routes, services, trips, stopTimes, shapePts });
-    setValidation(res);
-    setBanner(res.errors.length ? { kind: "error", text: `Validation found ${res.errors.length} errors and ${res.warnings.length} warnings.` }
-                                : { kind: "success", text: res.warnings.length ? `Validation OK with ${res.warnings.length} warnings.` : "Validation OK." });
-    setTimeout(() => setBanner(null), 3200);
-    return res;
-  };
+  
   async function ensureAllStopTimesForExport() {
     const all = stopTimesAllRef.current;
     if (!all) return; // nothing lazy-loaded
@@ -2450,9 +2348,6 @@ const addStopTimeRow = () => {
   }
   const onExportGTFS = async () =>
     withBusy("Preparing GTFS…", async () => {
-      const { errors } = runValidation();
-      if (errors.length) { alert("Fix validation errors before exporting."); return; }
-
       // Build the set of routes to export, if the toggle is on
       let onlyRoutes: Set<string> | undefined = undefined;
       if (exportOnlySelectedRoutes) {
@@ -2475,22 +2370,17 @@ const addStopTimeRow = () => {
             ? stopTimesAllRef.current
             : stopTimes;
 
-        // You already have this helper in your file
         const rowsByTripForExport = groupStopTimesByTrip(rowsSource);
 
         await exportGtfsCompiled(
           onlyRoutes,
-          {
-            roundCoords: exportRoundCoords,
-            decimateShapes: exportDecimateShapes,
-            maxShapePts: 2000,
-          },
-          rowsByTripForExport   // ⬅️ pass the FULL grouped map
+          undefined,              // defaults kick in: round + decimate = true
+          rowsByTripForExport
         );
       } finally {
         queueMicrotask(() => { suppressCompute.current = false; });
       }
-    });
+  });
 
   const resetAll = () => {
     if (!confirm("Reset project?")) return;
@@ -3374,8 +3264,53 @@ useEffect(() => {
   const tooManyRoutes = routes.length > 1200; // tweak as needed
   return (
     <div className="container" style={{ padding: 16 }}>
-      <style>{`.busy-fab {
+      <style>{
+        `.toolbar *{
+          font-size: 13px!important;
+        }
+          .toolbar{
+          margin: 0;}
+        .busy-fab {
           position: fixed; right: 16px; bottom: 16px;
+          /* --- Unify toolbar font sizes --- */
+          .card.section .card-body {
+            font-size: 13px;
+          }
+
+          
+
+          .card.section .card-body label,
+          .card.section .card-body input,
+          .card.section .card-body select,
+          .card.section .card-body button {
+            font-size: 13px !important;
+          }
+
+          .card.section .card-body h3,
+          .card.section .card-body h1 {
+            font-size: 15px;
+            font-weight: 600;
+          }
+            /* Normalize toolbar text sizes */
+          .toolbar { font-size: 13px; }
+
+          /* Ensure form controls + buttons actually match the base size */
+          .toolbar .btn,
+          .toolbar .file-btn,
+          .toolbar label,
+          .toolbar input,
+          .toolbar select,
+          .toolbar span {
+            font-size: 13px;
+            line-height: 1.25;
+          }
+
+          /* Keep headings slightly larger */
+          .toolbar h1,
+          .toolbar h3 {
+            font-size: 15px;
+            font-weight: 600;
+          }
           background: #111; color: #fff; border: none; border-radius: 999px;
           padding: 10px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.18);
           display: inline-flex; align-items: center; gap: 8px; z-index: 9999;
@@ -3393,7 +3328,6 @@ useEffect(() => {
         @keyframes haloPulse { 0%{stroke-opacity:.65;stroke-width:10px;} 50%{stroke-opacity:.2;stroke-width:16px;} 100%{stroke-opacity:.65;stroke-width:10px;} }
       `}</style>
 
-      <h1 style={{ fontSize: '15px'}}>GTFS Builder by Álvaro Trabanco for Rome2Rio</h1>
 
       {banner && (
         <div className={`banner ${banner.kind === "error" ? "banner-error" : banner.kind === "success" ? "banner-success" : "banner-info"}`}
@@ -3411,27 +3345,24 @@ useEffect(() => {
 
       {/* Toolbar */}
       <div className="card section" style={{ marginBottom: 12 }}>
-        <div className="card-body" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="card-body toolbar" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <h1 style={{ fontSize: '13px', color: '#df007c', display: 'block'}}>GTFS Builder</h1>
+
+          <label className="file-btn">
+            Import GTFS .zip
+            <input
+              type="file"
+              accept=".zip"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importGTFSZip(f);
+                (e.target as HTMLInputElement).value = "";
+              }}
+            />
+          </label>
+
           
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            type="button"
-            className="btn"
-            disabled={mapZoom < MIN_ADD_ZOOM || !mapCenter}
-            onClick={handleAddStopAtCenter}
-          >
-            Add stop (map center)
-          </button>
-          {(mapZoom < MIN_ADD_ZOOM || !mapCenter) && (
-            <span style={{ fontSize: 11, opacity: 0.7 }}>zoom in to Add Stops</span>
-          )}
-        </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <label>Next stop name:</label>
-            <input className="input" value={nextStopName} onChange={e => setNextStopName(e.target.value)} placeholder="optional" />
-          </div>
 
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <input type="checkbox" checked={showRoutes} onChange={e => setShowRoutes(e.target.checked)} />
@@ -3447,31 +3378,11 @@ useEffect(() => {
             Scope tables/map to selected route
           </label>
 
-          {/* Route & trips quick actions */}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button className="btn" onClick={createNewRoute}>New route</button>
-
-            <button
-              className="btn"
-              disabled={!selectedRouteId}
-              title={selectedRouteId ? "Duplicate selected route" : "Select a route first"}
-              onClick={duplicateSelectedRoute}
-            >
-              Duplicate route
-            </button>
-
-            <button
-              className="btn"
-              disabled={!selectedRouteId}
-              title={selectedRouteId ? "Add a trip for the selected route" : "Select a route first"}
-              onClick={createTripForSelectedRoute}
-            >
-              New trip (for selected)
-            </button>
-
-            
           </div>
 
+          
           
 
           {selectedRouteIds.size > 0 && (
@@ -3526,10 +3437,8 @@ useEffect(() => {
           )}
 
           <button className="btn" onClick={() => { setSelectedRouteId(null); setSelectedRouteIds(new Set()); setSelectedStopId(null); setActiveServiceIds(new Set()); setClearSignal(x => x + 1); }}>
-            Clear filters & selection
+            Deselect route
           </button>
-
-          <button className="btn" onClick={exportProject}>Export project JSON</button>
 
           <label className="file-btn">
             Import project JSON
@@ -3537,8 +3446,12 @@ useEffect(() => {
               onChange={e => { const f = e.target.files?.[0]; if (f) importProject(f); }} />
           </label>
 
+          <button className="file-btn" onClick={exportProjectJSON}>Export project JSON</button>
+
+          
+
           <label className="file-btn">
-            Import overrides.json
+            Import custom stop rules
             <input
               type="file"
               accept="application/json"
@@ -3551,42 +3464,20 @@ useEffect(() => {
               }}
             />
           </label>
-
-          <label className="file-btn">
-            Import GTFS .zip
-            <input
-              type="file"
-              accept=".zip"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) importGTFSZip(f);
-                (e.target as HTMLInputElement).value = "";
-              }}
-            />
-          </label>
-
-          <button className="btn btn-primary" onClick={onExportGTFS}>Export GTFS .zip</button>
-
-                    {/* Export options */}
+          
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", background: "#f7f8fa", padding: "6px 10px", borderRadius: 10 }}>
             <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input type="checkbox" checked={exportOnlySelectedRoutes} onChange={e=>setExportOnlySelectedRoutes(e.target.checked)} />
-              Only selected route(s)
-            </label>
-            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input type="checkbox" checked={exportPruneUnused} onChange={e=>setExportPruneUnused(e.target.checked)} />
-              Prune unused rows
-            </label>
-            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input type="checkbox" checked={exportRoundCoords} onChange={e=>setExportRoundCoords(e.target.checked)} />
-              Round shape coords
-            </label>
-            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input type="checkbox" checked={exportDecimateShapes} onChange={e=>setExportDecimateShapes(e.target.checked)} />
-              Decimate long shapes
+              <input
+                type="checkbox"
+                checked={exportOnlySelectedRoutes}
+                onChange={e => setExportOnlySelectedRoutes(e.target.checked)}
+              />
+              Export only selected routes
             </label>
           </div>
+          <button className="btn btn-primary" onClick={onExportGTFS}>Export GTFS .zip</button>
+
+          
 
           <button
             className="btn"
@@ -3613,32 +3504,47 @@ useEffect(() => {
             Export custom rules
           </button>
 
-          <button
-            className="btn"
-            onClick={() =>
-              withBusy("Validating…", async () => {
-                const res = runValidation();
-                setValidation(res);
-                setBanner(
-                  res.errors.length
-                    ? { kind: "error", text: `Validation found ${res.errors.length} errors and ${res.warnings.length} warnings.` }
-                    : { kind: "success", text: res.warnings.length ? `Validation OK with ${res.warnings.length} warnings.` : "Validation OK." }
-                );
-                setTimeout(() => setBanner(null), 3200);
-              })
-            }
-          >
-            Validate
-          </button>
+          
 
           <button className="btn btn-danger" onClick={resetAll}>Reset</button>
+
+
+          <button
+            className="btn"
+            onClick={() => window.open("https://gtfs-validator.mobilitydata.org/", "_blank")}
+            title="Opens MobilityData’s GTFS Validator in a new tab"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            Validate
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </button>
         </div>
       </div>
 
       {/* Map */}
       <div className="card section">
         <div className="card-body">
-          <div className={`map-shell ${selectedRouteId ? "bw" : ""}`} style={{ height: 520, width: "100%", borderRadius: 12, overflow: "hidden", position: "relative" }}>
+          {(mapZoom < MIN_ADD_ZOOM) && (
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 8,
+                background: "#fff7ed",   // orange-100
+                color: "#b45309",        // orange-700
+                border: "1px solid #fed7aa",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+              title={`Zoom in to at least ${MIN_ADD_ZOOM} to add stops by clicking on the map`}
+            >
+              Zoom in to at least {MIN_ADD_ZOOM} to add stops by clicking on the map.
+            </span>
+          )}
+          <div className={`map-shell ${selectedRouteId ? "bw" : ""}`} style={{ height: 400, width: "100%", borderRadius: 12, overflow: "hidden", position: "relative" }}>
             {isBusy && (
               <div
                 style={{
@@ -4051,360 +3957,284 @@ useEffect(() => {
         </div>
         <div ref={stopTimesRef}>
           {/* Draggable stop_times grouped by trip_id */}
-          {tripIdsForStopTimes.length ? (() => {
-            // limit how many trip sections render at once
-            const tripIdsPage = tripIdsForStopTimes.slice(0, MAX_TRIP_GROUPS_RENDERED);
+          {tripIdsForStopTimes.length ? (
+            <div className="card section" style={{ marginTop: 10 }}>
+              <div className="card-body">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <h3 style={{ margin: 0 }}>
+                    stop_times.txt{" "}
+                    {activeTripIdForTimes && (
+                      <span style={{ opacity: 0.6, fontWeight: 400 }}>
+                        — trip_id:&nbsp;<code>{activeTripIdForTimes}</code>{" "}
+                        ({stopTimes.filter(st => st.trip_id === activeTripIdForTimes).length} rows)
+                      </span>
+                    )}
+                  </h3>
 
-            return (
-              <>
-                {tripIdsPage.map((trip_id) => {
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    {/* Trip selector */}
+                    <label style={{ fontSize: 12, opacity: 0.7 }}>Trip:</label>
+                    <select
+                      className="input"
+                      value={activeTripIdForTimes ?? ""}
+                      onChange={(e) => setActiveTripIdForTimes(e.target.value || null)}
+                      style={{ minWidth: 220, padding: "6px 8px", borderRadius: 8, border: "1px solid #e3e3e3" }}
+                    >
+                      {tripIdsForStopTimes.map(tid => (
+                        <option key={tid} value={tid}>{tid}</option>
+                      ))}
+                    </select>
+
+                    {/* Add helpers */}
+                    <button className="btn" onClick={addBlankStopTimeRow}>Add blank row</button>
+
+                    <input
+                      value={existingStopToAdd}
+                      onChange={(e) => setExistingStopToAdd(e.target.value)}
+                      placeholder="Choose a stop…"
+                      list="gtfs-stop-ids"
+                      className="input"
+                      style={{ minWidth: 260 }}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => confirmAddExistingStop(activeTripIdForTimes ?? undefined)}
+                    >
+                      Add
+                    </button>
+
+                    {/* Delete only stop_times rows for this trip (keep trip itself) */}
+                    <button
+                      className="btn btn-danger"
+                      disabled={!activeTripIdForTimes}
+                      title="Remove all stop_times rows for this trip_id (trip remains in trips.txt)"
+                      onClick={() => {
+                        if (!activeTripIdForTimes) return;
+                        const cnt = stopTimes.filter(st => st.trip_id === activeTripIdForTimes).length;
+                        if (cnt === 0) return;
+                        if (!confirm(`Delete ${cnt} stop_times row(s) for trip ${activeTripIdForTimes}?`)) return;
+                        setStopTimes(prev => prev.filter(st => st.trip_id !== activeTripIdForTimes));
+                      }}
+                    >
+                      Clear rows for this trip
+                    </button>
+                  </div>
+                </div>
+
+                {/* Table for just the active trip */}
+                {activeTripIdForTimes ? (() => {
+                  const trip_id = activeTripIdForTimes;
                   const rows = stopTimes
-                    .filter((st) => st.trip_id === trip_id)
+                    .filter(st => st.trip_id === trip_id)
                     .sort((a, b) => num(a.stop_sequence) - num(b.stop_sequence));
 
                   return (
-                    <div key={trip_id} className="card section" style={{ marginTop: 10 }}>
-                      <div className="card-body">
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "baseline",
-                            justifyContent: "space-between",
-                            gap: 12,
-                          }}
-                        >
-                          <h3 style={{ margin: 0 }}>
-                            stop_times.txt{" "}
-                            <span style={{ opacity: 0.6, fontWeight: 400 }}>
-                              — trip_id: <code>{trip_id}</code> ({rows.length} rows)
-                            </span>
-                          </h3>
+                    <div className="overflow-auto" style={{ borderRadius: 12, border: "1px solid #eee", marginTop: 8 }}>
+                      <table style={{ width: "100%", fontSize: 13, minWidth: 900 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: 28 }}></th>
+                            <th>stop_sequence</th>
+                            <th>stop_id</th>
+                            <th>stop_name</th>
+                            <th>arrival_time</th>
+                            <th>departure_time</th>
+                            <th>pickup_type</th>
+                            <th>drop_off_type</th>
+                            <th style={{ width: 30 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.length ? rows.map((r, idx) => {
+                            const globalKey = `${r.trip_id}::${r.stop_id}::${r.stop_sequence}::${idx}`;
+                            const stopName = stopIdToName(r.stop_id);
+                            const bad = badTimeKeys.has(`${r.trip_id}::${r.stop_sequence}`);
+                            const badInputStyle = bad ? { border: "1px solid #e11d48", background: "#fee2e2" } : {};
 
-                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                            <button className="btn" onClick={addBlankStopTimeRow}>
-                              Add blank row
-                            </button>
+                            return (
+                              <tr
+                                key={globalKey}
+                                draggable
+                                onDragStart={() => setDragInfo({ trip_id, from: idx })}
+                                onDragOver={(e) => { if (dragInfo?.trip_id === trip_id) e.preventDefault(); }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  if (dragInfo?.trip_id === trip_id) moveRowWithinTrip(trip_id, dragInfo.from, idx);
+                                  setDragInfo(null);
+                                }}
+                                style={{
+                                  cursor: "grab",
+                                  background:
+                                    selectedStopTime &&
+                                    selectedStopTime.trip_id === r.trip_id &&
+                                    Number(selectedStopTime.stop_sequence) === Number(r.stop_sequence)
+                                      ? "rgba(232, 242, 255, 0.7)"
+                                      : "transparent",
+                                  outline:
+                                    selectedStopTime &&
+                                    selectedStopTime.trip_id === r.trip_id &&
+                                    Number(selectedStopTime.stop_sequence) === Number(r.stop_sequence)
+                                      ? "2px solid #7db7ff"
+                                      : "none",
+                                  outlineOffset: -2,
+                                }}
+                                onClick={() => setSelectedStopTime({ trip_id, stop_sequence: r.stop_sequence })}
+                              >
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4, textAlign: "center" }} title="Drag to reorder">↕</td>
 
-                            <input
-                              value={existingStopToAdd}
-                              onChange={(e) => setExistingStopToAdd(e.target.value)}
-                              placeholder="Choose a stop…"
-                              list="gtfs-stop-ids"
-                              className="input"
-                              style={{ minWidth: 260 }}
-                            />
-                            <button className="btn btn-primary" onClick={() => confirmAddExistingStop(trip_id)}>
-                              Add
-                            </button>
-                          </div>
-                        </div>
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input value={r.stop_sequence} readOnly
+                                    style={{ width: 80, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8, background: "#f8f9fb" }} />
+                                </td>
 
-                        <div
-                          className="overflow-auto"
-                          style={{ borderRadius: 12, border: "1px solid #eee", marginTop: 8 }}
-                        >
-                          <table style={{ width: "100%", fontSize: 13, minWidth: 900 }}>
-                            <thead>
-                              <tr>
-                                <th style={{ width: 28 }}></th>
-                                <th>stop_sequence</th>
-                                <th>stop_id</th>
-                                <th>stop_name</th>
-                                <th>arrival_time</th>
-                                <th>departure_time</th>
-                                <th>pickup_type</th>
-                                <th>drop_off_type</th>
-                                <th style={{ width: 30 }}></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {rows.map((r, idx) => {
-                                const globalKey = `${r.trip_id}::${r.stop_id}::${r.stop_sequence}::${idx}`;
-                                const stopName = stopIdToName(r.stop_id);
-                                const bad = badTimeKeys.has(`${r.trip_id}::${r.stop_sequence}`);
-                                const badInputStyle = bad
-                                  ? { border: "1px solid #e11d48", background: "#fee2e2" }
-                                  : {};
-
-                                return (
-                                  <tr
-                                    key={globalKey}
-                                    draggable
-                                    onDragStart={() => setDragInfo({ trip_id, from: idx })}
-                                    onDragOver={(e) => {
-                                      if (dragInfo?.trip_id === trip_id) e.preventDefault();
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.stop_id}
+                                    list="gtfs-stop-ids"
+                                    onChange={(e) => {
+                                      const sidOrName = e.target.value;
+                                      const sid = stopNameToId.get(sidOrName) ?? sidOrName;
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, stop_id: sid }
+                                            : st
+                                        )
+                                      );
                                     }}
-                                    onDrop={(e) => {
-                                      e.preventDefault();
-                                      if (dragInfo?.trip_id === trip_id)
-                                        moveRowWithinTrip(trip_id, dragInfo.from, idx);
-                                      setDragInfo(null);
+                                    style={{ width: 180, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8 }}
+                                  />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input value={stopName} readOnly
+                                    style={{ width: 200, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8, background: "#f8f9fb" }} />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.arrival_time ?? ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, arrival_time: v }
+                                            : st
+                                        )
+                                      );
                                     }}
-                                    style={{
-                                      cursor: "grab",
-                                      background:
-                                        selectedStopTime &&
-                                        selectedStopTime.trip_id === r.trip_id &&
-                                        Number(selectedStopTime.stop_sequence) === Number(r.stop_sequence)
-                                          ? "rgba(232, 242, 255, 0.7)"
-                                          : "transparent",
-                                      outline:
-                                        selectedStopTime &&
-                                        selectedStopTime.trip_id === r.trip_id &&
-                                        Number(selectedStopTime.stop_sequence) === Number(r.stop_sequence)
-                                          ? "2px solid #7db7ff"
-                                          : "none",
-                                      outlineOffset: -2,
+                                    placeholder="HH:MM:SS"
+                                    style={{ width: 130, padding: "4px 6px", borderRadius: 8, border: "1px solid #e8e8e8", ...badInputStyle }}
+                                  />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.departure_time ?? ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, departure_time: v }
+                                            : st
+                                        )
+                                      );
                                     }}
-                                    onClick={() =>
-                                      setSelectedStopTime({
-                                        trip_id,
-                                        stop_sequence: r.stop_sequence,
-                                      })
-                                    }
+                                    placeholder="HH:MM:SS"
+                                    style={{ width: 130, padding: "4px 6px", borderRadius: 8, border: "1px solid #e8e8e8", ...badInputStyle }}
+                                  />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.pickup_type ?? 0}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? undefined : Number(e.target.value);
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, pickup_type: v }
+                                            : st
+                                        )
+                                      );
+                                    }}
+                                    style={{ width: 90, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8 }}
+                                  />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.drop_off_type ?? 0}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? undefined : Number(e.target.value);
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, drop_off_type: v }
+                                            : st
+                                        )
+                                      );
+                                    }}
+                                    style={{ width: 110, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8 }}
+                                  />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 0, textAlign: "center" }}>
+                                  <button
+                                    title="Delete row"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setStopTimes((prev) =>
+                                        prev.filter(
+                                          (st) => !(st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence)
+                                        )
+                                      );
+                                    }}
+                                    style={{ border: "none", background: "transparent", cursor: "pointer", width: 28, height: 28, lineHeight: "28px" }}
                                   >
-                                    {/* drag handle */}
-                                    <td
-                                      style={{
-                                        borderBottom: "1px solid #f3f3f3",
-                                        padding: 4,
-                                        textAlign: "center",
-                                      }}
-                                      title="Drag to reorder"
-                                    >
-                                      ↕
-                                    </td>
-
-                                    {/* stop_sequence */}
-                                    <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                      <input
-                                        value={r.stop_sequence}
-                                        readOnly
-                                        style={{
-                                          width: 80,
-                                          border: "1px solid #e8e8e8",
-                                          padding: "4px 6px",
-                                          borderRadius: 8,
-                                          background: "#f8f9fb",
-                                        }}
-                                      />
-                                    </td>
-
-                                    {/* stop_id */}
-                                    <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                      <input
-                                        value={r.stop_id}
-                                        list="gtfs-stop-ids"
-                                        onChange={(e) => {
-                                          const sidOrName = e.target.value;
-                                          const sid = stopNameToId.get(sidOrName) ?? sidOrName;
-                                          setStopTimes((prev) =>
-                                            prev.map((st) =>
-                                              st.trip_id === r.trip_id &&
-                                              st.stop_sequence === r.stop_sequence
-                                                ? { ...st, stop_id: sid }
-                                                : st
-                                            )
-                                          );
-                                        }}
-                                        style={{
-                                          width: 180,
-                                          border: "1px solid #e8e8e8",
-                                          padding: "4px 6px",
-                                          borderRadius: 8,
-                                        }}
-                                      />
-                                    </td>
-
-                                    {/* stop_name (mirror) */}
-                                    <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                      <input
-                                        value={stopName}
-                                        readOnly
-                                        style={{
-                                          width: 200,
-                                          border: "1px solid #e8e8e8",
-                                          padding: "4px 6px",
-                                          borderRadius: 8,
-                                          background: "#f8f9fb",
-                                        }}
-                                      />
-                                    </td>
-
-                                    {/* arrival_time */}
-                                    <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                      <input
-                                        value={r.arrival_time ?? ""}
-                                        onChange={(e) => {
-                                          const v = e.target.value;
-                                          setStopTimes((prev) =>
-                                            prev.map((st) =>
-                                              st.trip_id === r.trip_id &&
-                                              st.stop_sequence === r.stop_sequence
-                                                ? { ...st, arrival_time: v }
-                                                : st
-                                            )
-                                          );
-                                        }}
-                                        placeholder="HH:MM:SS"
-                                        style={{
-                                          width: 130,
-                                          padding: "4px 6px",
-                                          borderRadius: 8,
-                                          border: "1px solid #e8e8e8",
-                                          ...badInputStyle,
-                                        }}
-                                      />
-                                    </td>
-
-                                    {/* departure_time */}
-                                    <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                      <input
-                                        value={r.departure_time ?? ""}
-                                        onChange={(e) => {
-                                          const v = e.target.value;
-                                          setStopTimes((prev) =>
-                                            prev.map((st) =>
-                                              st.trip_id === r.trip_id &&
-                                              st.stop_sequence === r.stop_sequence
-                                                ? { ...st, departure_time: v }
-                                                : st
-                                            )
-                                          );
-                                        }}
-                                        placeholder="HH:MM:SS"
-                                        style={{
-                                          width: 130,
-                                          padding: "4px 6px",
-                                          borderRadius: 8,
-                                          border: "1px solid #e8e8e8",
-                                          ...badInputStyle,
-                                        }}
-                                      />
-                                    </td>
-
-                                    {/* pickup_type */}
-                                    <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                      <input
-                                        value={r.pickup_type ?? 0}
-                                        onChange={(e) => {
-                                          const v =
-                                            e.target.value === "" ? undefined : Number(e.target.value);
-                                          setStopTimes((prev) =>
-                                            prev.map((st) =>
-                                              st.trip_id === r.trip_id &&
-                                              st.stop_sequence === r.stop_sequence
-                                                ? { ...st, pickup_type: v }
-                                                : st
-                                            )
-                                          );
-                                        }}
-                                        style={{
-                                          width: 90,
-                                          border: "1px solid #e8e8e8",
-                                          padding: "4px 6px",
-                                          borderRadius: 8,
-                                        }}
-                                      />
-                                    </td>
-
-                                    {/* drop_off_type */}
-                                    <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                      <input
-                                        value={r.drop_off_type ?? 0}
-                                        onChange={(e) => {
-                                          const v =
-                                            e.target.value === "" ? undefined : Number(e.target.value);
-                                          setStopTimes((prev) =>
-                                            prev.map((st) =>
-                                              st.trip_id === r.trip_id &&
-                                              st.stop_sequence === r.stop_sequence
-                                                ? { ...st, drop_off_type: v }
-                                                : st
-                                            )
-                                          );
-                                        }}
-                                        style={{
-                                          width: 110,
-                                          border: "1px solid #e8e8e8",
-                                          padding: "4px 6px",
-                                          borderRadius: 8,
-                                        }}
-                                      />
-                                    </td>
-
-                                    {/* delete */}
-                                    <td
-                                      style={{
-                                        borderBottom: "1px solid #f3f3f3",
-                                        padding: 0,
-                                        textAlign: "center",
-                                      }}
-                                    >
-                                      <button
-                                        title="Delete row"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setStopTimes((prev) =>
-                                            prev.filter(
-                                              (st) =>
-                                                !(
-                                                  st.trip_id === r.trip_id &&
-                                                  st.stop_sequence === r.stop_sequence
-                                                )
-                                            )
-                                          );
-                                        }}
-                                        style={{
-                                          border: "none",
-                                          background: "transparent",
-                                          cursor: "pointer",
-                                          width: 28,
-                                          height: 28,
-                                          lineHeight: "28px",
-                                        }}
-                                      >
-                                        ×
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              {!rows.length && (
-                                <tr>
-                                  <td colSpan={9} style={{ padding: 12, opacity: 0.6 }}>
-                                    No rows.
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {selectedStopTime ? (
-                          <div className="muted" style={{ marginTop: 6 }}>
-                            New rows will be inserted <b>after</b> trip{" "}
-                            <code>{selectedStopTime.trip_id}</code>, sequence{" "}
-                            <b>{selectedStopTime.stop_sequence}</b>.
-                          </div>
-                        ) : (
-                          <div className="muted" style={{ marginTop: 6 }}>
-                            Tip: click a row to insert the next one <b>after</b> it.
-                          </div>
-                        )}
-                      </div>
+                                    ×
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          }) : (
+                            <tr>
+                              <td colSpan={9} style={{ padding: 12, opacity: 0.6 }}>No rows.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   );
-                })}
-
-                {tripIdsForStopTimes.length > MAX_TRIP_GROUPS_RENDERED && (
+                })() : (
                   <div className="muted" style={{ marginTop: 6 }}>
-                    Showing first {MAX_TRIP_GROUPS_RENDERED} trips for this route. Narrow by service chips to see fewer.
+                    Choose a trip to edit its stop_times.
                   </div>
                 )}
-              </>
-            );
-          })() : (
+
+                {selectedStopTime ? (
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    New rows will be inserted <b>after</b> trip <code>{selectedStopTime.trip_id}</code>, sequence{" "}
+                    <b>{selectedStopTime.stop_sequence}</b>.
+                  </div>
+                ) : (
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    Tip: click a row to insert the next one <b>after</b> it.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
             <div className="card section" style={{ marginTop: 10 }}>
               <div className="card-body">
                 <h3 style={{ marginTop: 0 }}>stop_times.txt</h3>
@@ -4474,33 +4304,30 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* Validation summary */}
-      <div className="card section" style={{ marginTop: 12 }}>
-        <div className="card-body">
-          <h3>Validation</h3>
-          <div className="muted" style={{ marginTop: 10 }}>
-            <strong>Errors:</strong> {validation.errors.length} &nbsp; | &nbsp;
-            <strong>Warnings:</strong> {validation.warnings.length}
-          </div>
-          {validation.errors.length > 0 && (
-            <>
-              <h4>Errors</h4>
-              <ul>{validation.errors.map((e, i) => <li key={`e${i}`}><code>{e.file}{e.row ? `:${e.row}` : ""}</code> — {e.message}</li>)}</ul>
-            </>
-          )}
-          {validation.warnings.length > 0 && (
-            <>
-              <h4>Warnings</h4>
-              <ul>{validation.warnings.map((w, i) => <li key={`w${i}`}><code>{w.file}{w.row ? `:${w.row}` : ""}</code> — {w.message}</li>)}</ul>
-            </>
-          )}
-          <p className="muted" style={{ marginTop: 8 }}>
-            Export skips any <code>stop_times</code> row where both arrival and departure are blank.
-          </p>
-        </div>
-      </div>
+      
       {isBusy && (
-        <button className="busy-fab" aria-busy="true" title={busyLabel ?? "Working…"}>
+        <button
+          className="busy-fab"
+          aria-busy="true"
+          title={busyLabel ?? "Working…"}
+          style={{
+            position: "fixed",
+            right: 16,
+            bottom: 16,
+            background: "#111",
+            color: "#fff",
+            border: "none",
+            borderRadius: 999,
+            padding: "10px 14px",
+            boxShadow: "0 8px 24px rgba(0,0,0,.18)",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            zIndex: 9999,
+            opacity: 0.92,
+            cursor: "default",
+          }}
+        >
           <span className="spinner" />
           <span>{busyLabel ?? "Working…"}</span>
         </button>
