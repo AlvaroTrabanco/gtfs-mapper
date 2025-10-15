@@ -329,6 +329,7 @@ function PaginatedEditableTable<T extends Record<string, any>>({
   onAddRow,
   addRowLabel = "Add",
   headerExtras,
+  emptyText = "No rows.",
 }: {
   title: string;
   rows: T[];
@@ -353,7 +354,7 @@ function PaginatedEditableTable<T extends Record<string, any>>({
     onEdit: (key: string, value: any) => void;
   }) => React.ReactNode;
   headerExtras?: React.ReactNode;
-
+  emptyText?: string;
 }) {
 
   const editCell = (globalIndex: number, key: string, v: any) => {
@@ -539,7 +540,7 @@ function PaginatedEditableTable<T extends Record<string, any>>({
                     colSpan={(selectedPredicate ? 1 : 0) + Math.max(1, cols.length) + (onDeleteRow ? 1 : 0)}
                     style={{ padding: 12, opacity: .6 }}
                   >
-                    No rows.
+                    {emptyText ?? "No rows."}
                   </td>
                 </tr>
               )}
@@ -1269,6 +1270,44 @@ export default function App() {
     const others = stopTimes.filter(r => r.trip_id !== trip_id);
     const reseq = inTrip.map((r, i) => ({ ...r, stop_sequence: i + 1 }));
     setStopTimes([...others, ...reseq]);
+  }
+  // --- GTFS pickup/dropoff select helper ---
+  const STOP_TYPE_OPTIONS = [
+    { value: 0, label: "0 — Regularly scheduled" },
+    { value: 1, label: "1 — No pickup/drop-off" },
+    { value: 2, label: "2 — Must phone agency" },
+    { value: 3, label: "3 — Must coordinate with driver" },
+  ];
+
+  function StopTypeSelect({
+    value,
+    onChange,
+    title,
+  }: {
+    value: number | undefined;
+    onChange: (next: number) => void;
+    title?: string;
+  }) {
+    return (
+      <select
+        value={value ?? 0}
+        onChange={(e) => onChange(Number(e.target.value))}
+        title={title}
+        style={{
+          fontSize: 12,
+          border: "1px solid #e8e8e8",
+          borderRadius: 8,
+          padding: "4px 6px",
+          width: 130,
+        }}
+      >
+        {STOP_TYPE_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    );
   }
 const addAgencyRow = () => {
   const id = `agency_${agencies.length + 1}`;
@@ -3262,7 +3301,19 @@ useEffect(() => {
 
   /** ---------- Render ---------- */
   const tooManyRoutes = routes.length > 1200; // tweak as needed
-  return (
+
+  const activeRoute =
+    selectedRouteId ? routes.find(r => r.route_id === selectedRouteId) : null;
+
+  const routeLabel = activeRoute
+    ? (
+        activeRoute.route_short_name?.trim() ||
+        activeRoute.route_long_name?.trim() ||
+        activeRoute.route_id
+      )
+    : "";
+    return (
+      
     <div className="container" style={{ padding: 16 }}>
       <style>{
         `.toolbar *{
@@ -3601,26 +3652,29 @@ useEffect(() => {
 
 
               {/* Normal stops — not draggable while in Add mode */}
-              {visibleStops.map((s) => (
-                <CircleMarker
-                  key={s.uid}
-                  center={[s.stop_lat, s.stop_lon]}
-                  pane="stopsTop"
-                  radius={selectedRouteId ? 7 : 6} // you can also make them slightly bigger here
-                  color={selectedStopId === s.stop_id ? "#e11d48" : "#111"}
-                  weight={1.5}
-                  fillColor="#fff"
-                  fillOpacity={1}
-                  eventHandlers={{
-                    click: (e) => {
-                      if (isBusy) return;
-                      if ((e as any).originalEvent) L.DomEvent.stop((e as any).originalEvent);
-                      setMapClickMenu(null);        // ← close popup when switching stops
-                      setSelectedStopId(s.stop_id);
-                    },
-                  }}
-                />
-              ))}
+              {visibleStops.map((s) => {
+                const isSelected = selectedStopId === s.stop_id;
+                return (
+                  <CircleMarker
+                    key={s.uid}
+                    center={[s.stop_lat, s.stop_lon]}
+                    pane="stopsTop"
+                    radius={isSelected ? 10 : 6} // larger when selected
+                    color={isSelected ? "#df007c" : "#222"}
+                    weight={isSelected ? 3 : 1.5}
+                    fillColor={isSelected ? "#fff" : "#fafafa"}
+                    fillOpacity={1}
+                    eventHandlers={{
+                      click: (e) => {
+                        if (isBusy) return;
+                        if ((e as any).originalEvent) L.DomEvent.stop((e as any).originalEvent);
+                        setMapClickMenu(null);
+                        setSelectedStopId(s.stop_id);
+                      },
+                    }}
+                  />
+                );
+              })}
 
 
               {/* Route polylines */}
@@ -3838,15 +3892,16 @@ useEffect(() => {
       )}
 
       {/* Patterns for selected route */}
+      
       {selectedRouteId ? (
         <PatternMatrix
           stops={stops}
           services={services}
-          trips={(tripsByRoute.get(selectedRouteId) ?? [])}
+          trips={tripsByRoute.get(selectedRouteId) ?? []}
           stopTimes={stopTimes.filter(st =>
             (tripsByRoute.get(selectedRouteId) ?? []).some(t => t.trip_id === st.trip_id)
           )}
-          selectedRouteId={routes.some(r => r.route_id === selectedRouteId) ? selectedRouteId : null}
+          selectedRouteId={selectedRouteId}
           initialRestrictions={(project?.extras?.restrictions as RestrictionsMap) ?? EMPTY_OBJ}
           initialStopDefaults={(project?.extras?.stopDefaults as StopDefaultsMap) ?? EMPTY_OBJ}
           onRestrictionsChange={handleRestrictionsChange}
@@ -3914,6 +3969,7 @@ useEffect(() => {
               stop_lat: s.stop_lat,
               stop_lon: s.stop_lon,
             }))}
+            emptyText={selectedRouteId ? "No stops linked to this route yet" : "No rows."}
             onChange={(next) => {
               const uidById = new Map(stops.map(s => [s.stop_id, s.uid]));
               setStops(next.map((r: any) => ({
@@ -3979,7 +4035,14 @@ useEffect(() => {
                     )}
                   </h3>
 
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     {/* Trip selector */}
                     <label style={{ fontSize: 12, opacity: 0.7 }}>Trip:</label>
                     <select
@@ -3993,7 +4056,7 @@ useEffect(() => {
                       ))}
                     </select>
 
-                    {/* Add helpers */}
+                    {/* Add helpers on the same line */}
                     <button className="btn" onClick={addBlankStopTimeRow}>Add blank row</button>
 
                     <input
@@ -4011,7 +4074,7 @@ useEffect(() => {
                       Add
                     </button>
 
-                    {/* Delete only stop_times rows for this trip (keep trip itself) */}
+                    {/* Clear rows for this trip */}
                     <button
                       className="btn btn-danger"
                       disabled={!activeTripIdForTimes}
@@ -4024,7 +4087,7 @@ useEffect(() => {
                         setStopTimes(prev => prev.filter(st => st.trip_id !== activeTripIdForTimes));
                       }}
                     >
-                      Clear rows for this trip
+                      Clear rows
                     </button>
                   </div>
                 </div>
@@ -4062,8 +4125,6 @@ useEffect(() => {
                             return (
                               <tr
                                 key={globalKey}
-                                draggable
-                                onDragStart={() => setDragInfo({ trip_id, from: idx })}
                                 onDragOver={(e) => { if (dragInfo?.trip_id === trip_id) e.preventDefault(); }}
                                 onDrop={(e) => {
                                   e.preventDefault();
@@ -4071,7 +4132,7 @@ useEffect(() => {
                                   setDragInfo(null);
                                 }}
                                 style={{
-                                  cursor: "grab",
+                                  cursor: "default", // row is no longer the drag source
                                   background:
                                     selectedStopTime &&
                                     selectedStopTime.trip_id === r.trip_id &&
@@ -4086,9 +4147,34 @@ useEffect(() => {
                                       : "none",
                                   outlineOffset: -2,
                                 }}
-                                onClick={() => setSelectedStopTime({ trip_id, stop_sequence: r.stop_sequence })}
+                                onClick={(e) => {
+                                  const t = e.target as HTMLElement;
+                                  if (t.closest("input, select, button, textarea")) return; // don’t steal focus from form controls
+                                  setSelectedStopTime({ trip_id, stop_sequence: r.stop_sequence });
+                                }}
                               >
-                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4, textAlign: "center" }} title="Drag to reorder">↕</td>
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4, textAlign: "center" }} title="Drag to reorder">
+                                  <button
+                                    type="button"
+                                    draggable
+                                    onDragStart={() => setDragInfo({ trip_id, from: idx })}
+                                    onMouseDown={(e) => e.stopPropagation()} // don’t bubble to row
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      cursor: "grab",
+                                      padding: 0,
+                                      width: 24,
+                                      height: 24,
+                                      lineHeight: "24px",
+                                      userSelect: "none",
+                                    }}
+                                    aria-label="Drag to reorder"
+                                    title="Drag to reorder"
+                                  >
+                                    ↕
+                                  </button>
+                                </td>
 
                                 <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
                                   <input value={r.stop_sequence} readOnly
@@ -4155,38 +4241,43 @@ useEffect(() => {
                                   />
                                 </td>
 
+                                {/* pickup_type */}
                                 <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                  <input
-                                    value={r.pickup_type ?? 0}
-                                    onChange={(e) => {
-                                      const v = e.target.value === "" ? undefined : Number(e.target.value);
-                                      setStopTimes((prev) =>
-                                        prev.map((st) =>
-                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
-                                            ? { ...st, pickup_type: v }
-                                            : st
+                                  <div onMouseDown={(e) => e.stopPropagation()}>
+                                    <StopTypeSelect
+                                      title="Pickup type"
+                                      value={r.pickup_type}
+                                      onChange={(next) =>
+                                        setStopTimes((prev) =>
+                                          prev.map((st) =>
+                                            st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                              ? { ...st, pickup_type: next }
+                                              : st
+                                          )
                                         )
-                                      );
-                                    }}
-                                    style={{ width: 90, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8 }}
-                                  />
+                                      }
+                                    />
+                                  </div>
                                 </td>
 
+                                {/* drop_off_type */}
                                 <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                                  <input
-                                    value={r.drop_off_type ?? 0}
-                                    onChange={(e) => {
-                                      const v = e.target.value === "" ? undefined : Number(e.target.value);
-                                      setStopTimes((prev) =>
-                                        prev.map((st) =>
-                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
-                                            ? { ...st, drop_off_type: v }
-                                            : st
+                                  <div onMouseDown={(e) => e.stopPropagation()}>
+                                    <StopTypeSelect
+                                      title="Drop-off type"
+                                      value={r.drop_off_type}
+                                      onChange={(next) =>
+                                  
+                                        setStopTimes((prev) =>
+                                          prev.map((st) =>
+                                            st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                              ? { ...st, drop_off_type: next }
+                                              : st
+                                          )
                                         )
-                                      );
-                                    }}
-                                    style={{ width: 110, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8 }}
-                                  />
+                                      }
+                                    />
+                                  </div>
                                 </td>
 
                                 <td style={{ borderBottom: "1px solid #f3f3f3", padding: 0, textAlign: "center" }}>
@@ -4223,10 +4314,16 @@ useEffect(() => {
                 )}
 
                 {selectedStopTime ? (
-                  <div className="muted" style={{ marginTop: 6 }}>
-                    New rows will be inserted <b>after</b> trip <code>{selectedStopTime.trip_id}</code>, sequence{" "}
-                    <b>{selectedStopTime.stop_sequence}</b>.
-                  </div>
+                  <>
+                    <div className="muted" style={{ marginTop: 6 }}>
+                      New rows will be inserted <b>after</b> trip{" "}
+                      <code>{selectedStopTime.trip_id}</code>, sequence{" "}
+                      <b>{selectedStopTime.stop_sequence}</b>.
+                    </div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: 12, color: "#666" }}>
+                      Custom stop types must be changed in the Summary block.
+                    </div>
+                  </>
                 ) : (
                   <div className="muted" style={{ marginTop: 6 }}>
                     Tip: click a row to insert the next one <b>after</b> it.

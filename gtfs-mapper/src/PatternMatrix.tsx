@@ -602,7 +602,7 @@ useEffect(() => {
       <div key={`grp_${gi}`} className="card section" style={{ marginTop: gi === 0 ? 12 : 16 }}>
         <div className="card-body" style={{ overflow: "auto", position: "relative" }}>
           <div style={{ marginBottom: 6, display: "flex", alignItems: "baseline", gap: 8 }}>
-            <h3 style={{ margin: 0 }}>Pattern {gi + 1}</h3>
+            <h3 style={{ margin: 0 }}>Summary of selected route</h3>
             <div style={{ fontSize: 12, opacity: .75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {groupTitle}
             </div>
@@ -826,7 +826,6 @@ useEffect(() => {
       {groups.length === 0 && (
         <div className="card section" style={{ marginTop: 12 }}>
           <div className="card-body">
-            <h3>Pattern view</h3>
             <p style={{ opacity: .7 }}>No trips with stop_times for this route.</p>
           </div>
         </div>
