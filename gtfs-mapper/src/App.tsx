@@ -61,6 +61,8 @@ type StopDefaultsMap = Record<string, {
 
 
 type StopRuleMode = "normal" | "pickup" | "dropoff" | "custom";
+const asMode = (m?: StopRuleMode): StopRuleMode => (m ?? "normal");
+
 type ODRestriction = {
   mode: StopRuleMode;
   dropoffOnlyFrom?: string[];
@@ -112,6 +114,176 @@ function normalizeRule(raw: any): ODRestriction {
     dropoffOnlyFrom: Array.isArray(raw?.dropoffOnlyFrom) ? raw.dropoffOnlyFrom.map(String) : undefined,
     pickupOnlyTo: Array.isArray(raw?.pickupOnlyTo) ? raw.pickupOnlyTo.map(String) : undefined,
   };
+}
+
+/** ---------- Overrides import helpers (tolerant) ---------- */
+const KEY_DELIMS = ["::", "|", "/", "—", "–", "-"];
+function splitKey(k: string): [string, string] {
+  for (const d of KEY_DELIMS) {
+    if (k.includes(d)) {
+      const [a, b] = k.split(d);
+      return [String(a ?? "").trim(), String(b ?? "").trim()];
+    }
+  }
+  // fallback: try "<trip> <stop>" where last token looks like an id
+  const m = String(k).match(/^(.+?)\s+([A-Za-z0-9._:-]{3,})$/);
+  return m ? [m[1].trim(), m[2].trim()] : ["", ""];
+}
+
+type ImportLike = {
+  // either a map {"trip::stop": {...}} or an array of rows
+  restrictions?:
+    | Record<string, ODRestriction>
+    | Array<{
+        trip_id: string;
+        stop_id: string;
+        mode: StopRuleMode;
+        dropoffOnlyFrom?: string[];
+        pickupOnlyTo?: string[];
+      }>;
+  // either a map {"stop_id": {...}} or an array of rows
+  stopDefaults?:
+    | Record<string, ODRestriction>
+    | Array<{
+        stop_id: string;
+        mode: StopRuleMode;
+        dropoffOnlyFrom?: string[];
+        pickupOnlyTo?: string[];
+      }>;
+};
+
+function indexStopTimes(rows: StopTime[]) {
+  const byTrip = new Map<string, string[]>();
+  for (const st of rows) {
+    if (!byTrip.has(st.trip_id)) byTrip.set(st.trip_id, []);
+    byTrip.get(st.trip_id)!.push(st.stop_id);
+  }
+  return byTrip;
+}
+
+function clampToTrip(
+  seq: string[],
+  sid: string,
+  drop?: string[],
+  pick?: string[]
+) {
+  if (!seq.length) return { drop, pick };
+  const idx = seq.indexOf(sid);
+  if (idx === -1) return { drop, pick };
+  const up = new Set(seq.slice(0, idx));
+  const down = new Set(seq.slice(idx + 1));
+  const d = drop?.filter((x) => up.has(x));
+  const p = pick?.filter((x) => down.has(x));
+  return { drop: d?.length ? d : undefined, pick: p?.length ? p : undefined };
+}
+
+/** Accepts map/array forms, trims keys, accepts multiple delimiters */
+function importOverridesTolerant(
+  raw: unknown,
+  allStopTimes: StopTime[]
+): { restrictions: RestrictionsMap; stopDefaults: StopDefaultsMap } {
+  const tripIndex = indexStopTimes(allStopTimes);
+  const outR: RestrictionsMap = {};
+  const outD: StopDefaultsMap = {};
+  const data = (raw ?? {}) as ImportLike;
+
+  // restrictions
+  const r = data.restrictions;
+  if (Array.isArray(r)) {
+    for (const row of r) {
+      const tid = String(row.trip_id ?? "").trim();
+      const sid = String(row.stop_id ?? "").trim();
+      const mode = row.mode as StopRuleMode;
+      if (!tid || !sid || !mode) continue;
+      let drop = row.dropoffOnlyFrom,
+        pick = row.pickupOnlyTo;
+      if (mode === "custom") {
+        const seq = tripIndex.get(tid) ?? [];
+        const clamped = clampToTrip(seq, sid, drop, pick);
+        drop = clamped.drop;
+        pick = clamped.pick;
+      }
+      outR[`${tid}::${sid}`] = { mode, dropoffOnlyFrom: drop, pickupOnlyTo: pick };
+    }
+  } else if (r && typeof r === "object") {
+    for (const k of Object.keys(r)) {
+      const [tid, sid] = splitKey(k);
+      const val = (r as Record<string, ODRestriction>)[k];
+      if (!tid || !sid || !val?.mode) continue;
+      let drop = val.dropoffOnlyFrom,
+        pick = val.pickupOnlyTo;
+      if (val.mode === "custom") {
+        const seq = tripIndex.get(tid) ?? [];
+        const clamped = clampToTrip(seq, sid, drop, pick);
+        drop = clamped.drop;
+        pick = clamped.pick;
+      }
+      outR[`${tid}::${sid}`] = {
+        mode: val.mode,
+        dropoffOnlyFrom: drop,
+        pickupOnlyTo: pick,
+      };
+    }
+  }
+
+  // per-stop defaults
+  const d = data.stopDefaults;
+  if (Array.isArray(d)) {
+    for (const it of d) {
+      const sid = String(it.stop_id ?? "").trim();
+      if (!sid || !it.mode) continue;
+      outD[sid] = {
+        mode: it.mode,
+        dropoffOnlyFrom: it.dropoffOnlyFrom,
+        pickupOnlyTo: it.pickupOnlyTo,
+      };
+    }
+  } else if (d && typeof d === "object") {
+    for (const sid of Object.keys(d)) {
+      const it = (d as Record<string, ODRestriction>)[sid];
+      if (!it?.mode) continue;
+      outD[String(sid).trim()] = {
+        mode: it.mode,
+        dropoffOnlyFrom: it.dropoffOnlyFrom,
+        pickupOnlyTo: it.pickupOnlyTo,
+      };
+    }
+  }
+
+  return { restrictions: outR, stopDefaults: outD };
+}
+
+/** Auditor: counts and shows a few examples of non-matches */
+function auditOverrides(imported: RestrictionsMap, allStopTimes: StopTime[]) {
+  const byTrip = indexStopTimes(allStopTimes);
+  let ok = 0,
+    badTrip = 0,
+    badStop = 0,
+    notOnTrip = 0;
+  const examples: string[] = [];
+
+  for (const k of Object.keys(imported)) {
+    const [tid, sid] = splitKey(k);
+    const seq = byTrip.get(tid);
+    if (!seq) {
+      badTrip++;
+      if (examples.length < 5) examples.push(`No trip: ${tid}`);
+      continue;
+    }
+    if (!sid) {
+      badStop++;
+      if (examples.length < 5) examples.push(`Bad key (no stop): ${k}`);
+      continue;
+    }
+    if (!seq.includes(sid)) {
+      notOnTrip++;
+      if (examples.length < 5) examples.push(`Stop ${sid} not on trip ${tid}`);
+      continue;
+    }
+    ok++;
+  }
+
+  return { ok, badTrip, badStop, notOnTrip, examples };
 }
 
 function toYYYYMMDD(d: string | Date) {
@@ -1863,8 +2035,16 @@ const addStopTimeRow = () => {
       // Accept both { rules: { "trip::stop": {...} } } and a raw map
       const rules: RestrictionsMap = (json?.rules ?? json) as RestrictionsMap;
 
-      // Build the set of (trip_id::stop_id) pairs present in the loaded feed
-      const presentPairs = new Set(stopTimes.map(st => `${st.trip_id}::${st.stop_id}`));
+      // ✅ Use ALL stop_times if we have them cached; fall back to UI subset
+      const sourceRows =
+        (stopTimesAllRef.current && stopTimesAllRef.current.length)
+          ? stopTimesAllRef.current
+          : stopTimes;
+
+      // Build normalized (trip_id::stop_id) pairs present in the loaded feed
+      const presentPairs = new Set(
+        sourceRows.map(st => `${String(st.trip_id).trim()}::${String(st.stop_id).trim()}`)
+      );
 
       // Start from current restrictions (so we merge, don’t blow away user edits)
       const current: RestrictionsMap = (project?.extras?.restrictions ?? {}) as RestrictionsMap;
@@ -1874,8 +2054,9 @@ const addStopTimeRow = () => {
       let matched = 0;
       let skipped = 0;
 
-      for (const [key, rawRule] of Object.entries(rules)) {
+      for (const [rawKey, rawRule] of Object.entries(rules)) {
         total++;
+        const key = String(rawKey).trim(); // be forgiving about spacing
         if (presentPairs.has(key)) {
           next[key] = normalizeRule(rawRule);
           matched++;
@@ -1889,11 +2070,60 @@ const addStopTimeRow = () => {
         extras: { ...(prev?.extras ?? {}), restrictions: next },
       }));
 
+      // 🟢 Also update stopDefaults so left-column reflects imported rules
+      const inferredStopDefaults: Record<string, ODRestriction> = {};
+
+      // Derive each stop's overall mode (simplified heuristic)
+      for (const [key, rule] of Object.entries(next)) {
+        const [, stop_id] = key.split("::");
+        if (!stop_id) continue;
+
+        // normalize once, reuse (prevents “redeclare” errors and TS2367)
+        const ruleMode: StopRuleMode = asMode((rule as any)?.mode);
+        // or: const ruleMode: StopRuleMode = asMode(val?.mode);  // depending on variable name in that block
+        if (!stop_id) continue;
+        // skip when it's effectively "normal" (i.e., not one of the three special modes)
+        if (ruleMode !== "pickup" && ruleMode !== "dropoff" && ruleMode !== "custom") continue;
+        const existing = inferredStopDefaults[stop_id];
+        const currentMode: StopRuleMode = asMode(existing?.mode);
+
+        if (!existing) {
+          inferredStopDefaults[stop_id] = { ...(rule as any), mode: ruleMode };
+        } else if (currentMode !== "custom" && ruleMode === "custom") {
+          inferredStopDefaults[stop_id] = { ...(rule as any), mode: ruleMode };
+        } else if (currentMode === "normal") {
+          inferredStopDefaults[stop_id] = { ...(rule as any), mode: ruleMode };
+        }
+      }
+
+      if (Object.keys(inferredStopDefaults).length) {
+        setProject((prev: any) => ({
+          ...(prev ?? {}),
+          extras: {
+            ...(prev?.extras ?? {}),
+            stopDefaults: {
+              ...(prev?.extras?.stopDefaults ?? {}),
+              ...inferredStopDefaults,
+            },
+          },
+        }));
+        console.log("[Overrides] Stop defaults updated:", inferredStopDefaults);
+      }
+
       setBanner({
-        kind: "success",
+        kind: matched ? "success" : "info",
         text: `Overrides: applied ${matched}/${total}${skipped ? ` (${skipped} unmatched)` : ""}.`,
       });
       setTimeout(() => setBanner(null), 3200);
+
+      // Helpful console diagnostics
+      console.log("[Overrides] presentPairs size:", presentPairs.size);
+      if (!matched) {
+        const firstRuleKey = Object.keys(rules)[0];
+        console.log("[Overrides] Example key from file:", firstRuleKey);
+        // If you need to quickly check why a specific key won't match:
+        // console.log("has key?", presentPairs.has(String(firstRuleKey).trim()));
+      }
     } catch (e) {
       console.error(e);
       setBanner({ kind: "error", text: "Invalid overrides.json" });
@@ -1905,6 +2135,11 @@ const addStopTimeRow = () => {
   const importGTFSZip = async (file: File) =>
     withBusy("Parsing GTFS…", async () => {
       try {
+        // Clear OD rules/defaults when importing a raw operator feed
+        setProject((prev: any) => ({
+          ...(prev ?? {}),
+          extras: { restrictions: {}, stopDefaults: {}, shapeByRoute: {} },
+        }));
         // During huge imports, don't render thousands of markers
         setShowStops(false);
 
@@ -2430,6 +2665,7 @@ const addStopTimeRow = () => {
     setSelectedStopId(null);
     setActiveServiceIds(new Set());
     setClearSignal((x) => x + 1);
+    setProject({ extras: { restrictions: {}, stopDefaults: {}, shapeByRoute: {} } });
   };
 
   /** Edit a time (updates stop_times), store HH:MM:00 or "" */
@@ -3540,7 +3776,8 @@ useEffect(() => {
               const pruned: Record<string, any> = {};
               for (const [k, v] of Object.entries(allRules)) {
                 if (!v) continue;
-                if (v.mode && v.mode !== "normal") pruned[k] = v;
+                const m = asMode((v as any)?.mode);
+                if (m !== "normal") pruned[k] = v;
               }
 
               const blob = new Blob(
