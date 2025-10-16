@@ -110,9 +110,23 @@ type PatternMatrixProps = {
 
   // Optional: use your app’s time writeback; if omitted, we keep a local shadow so UI still edits.
   onEditTime?: (trip_id: string, stop_id: string, newUiTime: string) => void;
+
+  onApplyRuleToSection?: (args: {
+    tripIds: string[];
+    stopId: string;
+    rule: ODRestriction | null;
+  }) => void;
+
 };
 
 /* ---------------- Helpers ---------------- */
+function sameSet(a: string[] = [], b: string[] = []) {
+  if (a.length !== b.length) return false;
+  const A = new Set(a), B = new Set(b);
+  for (const x of A) if (!B.has(x)) return false;
+  return true;
+}
+
 function hhmmOnly(s: string) {
   if (!s) return "";
   const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
@@ -141,6 +155,48 @@ function useClickAway<T extends HTMLElement>(onAway: () => void) {
   return ref;
 }
 
+
+
+function summarizeRowRuleForStop(args: {
+  tripsWithStop: Trip[];
+  stopId: string;
+  groupTripStops: Map<string, string[]>;
+  restrictions: RestrictionsMap;
+}) {
+  const { tripsWithStop, stopId, restrictions } = args;
+
+  type Preset = { mode: StopRuleMode; dropoffOnlyFrom?: string[]; pickupOnlyTo?: string[] };
+  const presets: Preset[] = tripsWithStop.map((t) => {
+    const k = keyTS(t.trip_id, stopId);
+    const r = restrictions[k];
+    if (!r) return { mode: "normal" };
+    if (r.mode === "pickup" || r.mode === "dropoff" || r.mode === "normal") return { mode: r.mode };
+    return {
+      mode: "custom",
+      dropoffOnlyFrom: r.dropoffOnlyFrom ?? [],
+      pickupOnlyTo: r.pickupOnlyTo ?? [],
+    };
+  });
+
+  if (presets.length === 0) return null;
+
+  // All same mode?
+  const first = presets[0];
+  const allSameMode = presets.every(p => p.mode === first.mode);
+  if (!allSameMode) return null;
+
+  if (first.mode === "normal" || first.mode === "pickup" || first.mode === "dropoff") {
+    return first; // uniform simple mode
+  }
+
+  // custom: require identical sets to show a single row preset
+  const allSameCustom =
+    presets.every(p => p.mode === "custom") &&
+    presets.every(p => sameSet(p.dropoffOnlyFrom, first.dropoffOnlyFrom)) &&
+    presets.every(p => sameSet(p.pickupOnlyTo, first.pickupOnlyTo));
+
+  return allSameCustom ? first : null;
+}
 /* ---------------- Tiny chip ---------------- */
 function Chip({ children }: { children: React.ReactNode }) {
   return (
@@ -475,7 +531,7 @@ function StopBulkRuleEditor({
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
         <button onClick={onClose} style={{ fontSize: 12, padding: "6px 10px" }}>Cancel</button>
-        <button onClick={onApply} style={{ fontSize: 12, padding: "6px 10px" }}>Apply to all trips</button>
+        <button onClick={onApply} style={{ fontSize: 12, padding: "6px 10px" }}>Apply to these trips</button>
       </div>
     </div>
   );
@@ -646,22 +702,6 @@ useEffect(() => {
       }
       return next;
     });
-    // persist row default for this stop_id
-    if (bulkMode === "normal") {
-      setStopDefaults(prev => {
-        const n = { ...prev };
-        delete n[stop_id];
-        return n;
-      });
-    } else if (bulkMode === "pickup" || bulkMode === "dropoff") {
-      setStopDefaults(prev => ({ ...prev, [stop_id]: { mode: bulkMode } }));
-    } else {
-      // custom — store exactly what user set in the bulk editor
-      setStopDefaults(prev => ({
-        ...prev,
-        [stop_id]: { mode: "custom", dropoffOnlyFrom: bulkDropFrom.slice(), pickupOnlyTo: bulkPickTo.slice() }
-      }));
-    }
     setOpenBulkKey(null);
   };
 
@@ -719,9 +759,11 @@ useEffect(() => {
                 const rowKey = `${gi}::${sid}`;
                 const isBulkOpen = openBulkKey === rowKey;
 
+
+                
                 // Build UNION pools across group trips that include this stop
                 const tripsWithThisStop = g.trips.filter(t => (groupTripStops.get(t.trip_id) ?? []).includes(sid));
-
+                
                 // safe unions even if empty
                 const upstreamUnion = new Set<string>();
                 const downstreamUnion = new Set<string>();
@@ -737,51 +779,91 @@ useEffect(() => {
 
                 const upstreamPool = Array.from(upstreamUnion).map(id => stopById.get(id)).filter((x): x is Stop => Boolean(x));
                 const downstreamPool = Array.from(downstreamUnion).map(id => stopById.get(id)).filter((x): x is Stop => Boolean(x));
-
+                const rowPreset = summarizeRowRuleForStop({
+                  tripsWithStop: tripsWithThisStop,
+                  stopId: sid,
+                  groupTripStops,
+                  restrictions,
+                });
                 return (
                   <tr key={sid}>
                     <td style={{ padding: 8, borderBottom: "1px solid #f2f2f2", position: "sticky", left: 0, background: "#fff", zIndex: 2 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
                         <span>{s?.stop_name ?? sid}</span>
+
+                        {/* 3A) Row badge: put this EXACTLY here, between the name and the gear */}
+                        {rowPreset && (
+                          <span
+                            title={
+                              rowPreset.mode === "custom"
+                                ? "Custom OD rules applied in this section"
+                                : rowPreset.mode === "pickup"
+                                ? "Pickup-only in this section"
+                                : rowPreset.mode === "dropoff"
+                                ? "Dropoff-only in this section"
+                                : "Stop"
+                            }
+                            style={{
+                              fontSize: 10,
+                              padding: "1px 6px",
+                              border: "1px solid #ddd",
+                              borderRadius: 10,
+                              background: "#f7f7f8",
+                            }}
+                          >
+                            {rowPreset.mode === "pickup"
+                              ? "⭱ pickup"
+                              : rowPreset.mode === "dropoff"
+                              ? "⭳ dropoff"
+                              : rowPreset.mode === "custom"
+                              ? "⇄ custom"
+                              : "⤵︎ stop"}
+                          </span>
+                        )}
+
                         <button
-                          title="Edit rule for the whole row (all departures at this stop)"
+                          title="Edit rule for this row (trips in this section)"
                           onClick={(e) => {
                             setBulkAnchorEl(e.currentTarget as HTMLElement);
                             const rowKeyInner = `${gi}::${sid}`;
                             setOpenBulkKey((cur: string | null) => (cur === rowKeyInner ? null : rowKeyInner));
 
-                            // preload from saved defaults for this stop (if any)
-                            const def = stopDefaults[sid];
-                            if (!def || def.mode === "normal") {
+                            /* Preload the bulk editor FROM rowPreset (imported overrides)
+                              instead of stopDefaults */
+                            if (!rowPreset || rowPreset.mode === "normal") {
                               setBulkMode("normal");
                               setBulkDropFrom([]);
                               setBulkPickTo([]);
-                            } else if (def.mode === "pickup" || def.mode === "dropoff") {
-                              setBulkMode(def.mode);
+                            } else if (rowPreset.mode === "pickup" || rowPreset.mode === "dropoff") {
+                              setBulkMode(rowPreset.mode);
                               setBulkDropFrom([]);
                               setBulkPickTo([]);
                             } else {
-                              // custom
                               setBulkMode("custom");
-                              setBulkDropFrom(def.dropoffOnlyFrom ?? []);
-                              setBulkPickTo(def.pickupOnlyTo ?? []);
+                              setBulkDropFrom(rowPreset.dropoffOnlyFrom ?? []);
+                              setBulkPickTo(rowPreset.pickupOnlyTo ?? []);
                             }
                           }}
                           style={{ border: "1px solid #ddd", background: "#fff", borderRadius: 6, padding: "2px 6px", fontSize: 11, cursor: "pointer" }}
                         >
                           ⚙︎
                         </button>
-                        
 
                         <PortalPopover
                           open={isBulkOpen}
                           anchorEl={isBulkOpen ? bulkAnchorEl : null}
-                          onClose={() => { setOpenBulkKey(null); setBulkAnchorEl(null); }}
+                          onClose={() => {
+                            setOpenBulkKey(null);
+                            setBulkAnchorEl(null);
+                          }}
                         >
                           <div>
                             <StopBulkRuleEditor
                               open={true}
-                              onClose={() => { setOpenBulkKey(null); setBulkAnchorEl(null); }}
+                              onClose={() => {
+                                setOpenBulkKey(null);
+                                setBulkAnchorEl(null);
+                              }}
                               mode={bulkMode}
                               setMode={setBulkMode}
                               upstreamPool={upstreamPool ?? []}
@@ -802,7 +884,7 @@ useEffect(() => {
                       const base = hhmmOnly(st?.departure_time || st?.arrival_time || "");
                       const ui = hhmmOnly(getUiTime(t.trip_id, sid, base));
                       const k = keyTS(t.trip_id, sid);
-                      const rule = restrictions[k]?.mode ?? stopDefaults[sid]?.mode ?? "normal";
+                      const rule = restrictions[k]?.mode ?? "normal";
                       const cellKey = `${gi}::${t.trip_id}::${sid}`;
                       const isOpen = openCellKey === cellKey;
 

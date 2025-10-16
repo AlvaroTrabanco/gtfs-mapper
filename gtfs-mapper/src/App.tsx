@@ -53,21 +53,36 @@ type Agency = { agency_id: string; agency_name: string; agency_url: string; agen
 
 type Banner = { kind: "success" | "error" | "info"; text: string } | null;
 
-type StopDefaultsMap = Record<string, { 
-  mode: "normal" | "pickup" | "dropoff" | "custom";
-  dropoffOnlyFrom?: string[];
-  pickupOnlyTo?: string[];
-}>;
+
 
 
 type StopRuleMode = "normal" | "pickup" | "dropoff" | "custom";
-const asMode = (m?: StopRuleMode): StopRuleMode => (m ?? "normal");
-
 type ODRestriction = {
   mode: StopRuleMode;
   dropoffOnlyFrom?: string[];
   pickupOnlyTo?: string[];
 };
+type DirStr = "" | "0" | "1";
+type ScopedStopKey = `${string}::${DirStr}::${string}`;
+export const stopDefaultKey = (
+  route_id: string,
+  direction_id: 0 | 1 | undefined,
+  stop_id: string
+): ScopedStopKey =>
+  `${route_id}::${direction_id == null ? "" : (direction_id as 0 | 1)}::${stop_id}`;
+
+export const parseStopDefaultKey = (k: ScopedStopKey) => {
+  const [route_id, dir, stop_id] = k.split("::") as [string, DirStr, string];
+  const direction_id = dir === "" ? undefined : (Number(dir) as 0 | 1);
+  return { route_id, direction_id, stop_id };
+};
+
+type StopDefaultsMap = Record<ScopedStopKey, ODRestriction>;
+
+
+const asMode = (m?: StopRuleMode): StopRuleMode => (m ?? "normal");
+
+
 type RestrictionsMap = Record<string, ODRestriction>;
 
 type StopDefaults = { dwell?: number; pickup?: number; dropoff?: number };
@@ -114,6 +129,20 @@ function normalizeRule(raw: any): ODRestriction {
     dropoffOnlyFrom: Array.isArray(raw?.dropoffOnlyFrom) ? raw.dropoffOnlyFrom.map(String) : undefined,
     pickupOnlyTo: Array.isArray(raw?.pickupOnlyTo) ? raw.pickupOnlyTo.map(String) : undefined,
   };
+}
+
+function normalizeSavedStopDefaults(raw: unknown): StopDefaultsMap {
+  const out: StopDefaultsMap = {} as any;
+  if (!raw || typeof raw !== "object") return out;
+  for (const [k, v] of Object.entries(raw as Record<string, any>)) {
+    if (k.includes("::")) {
+      out[k as ScopedStopKey] = normalizeRule(v);
+    } else {
+      // legacy: promote to global (no route, any direction)
+      out[stopDefaultKey("", undefined, k)] = normalizeRule(v);
+    }
+  }
+  return out;
 }
 
 /** ---------- Overrides import helpers (tolerant) ---------- */
@@ -227,12 +256,14 @@ function importOverridesTolerant(
   }
 
   // per-stop defaults
+
+
   const d = data.stopDefaults;
   if (Array.isArray(d)) {
     for (const it of d) {
       const sid = String(it.stop_id ?? "").trim();
       if (!sid || !it.mode) continue;
-      outD[sid] = {
+      outD[stopDefaultKey("", undefined, sid) as ScopedStopKey] = {
         mode: it.mode,
         dropoffOnlyFrom: it.dropoffOnlyFrom,
         pickupOnlyTo: it.pickupOnlyTo,
@@ -242,7 +273,7 @@ function importOverridesTolerant(
     for (const sid of Object.keys(d)) {
       const it = (d as Record<string, ODRestriction>)[sid];
       if (!it?.mode) continue;
-      outD[String(sid).trim()] = {
+      outD[stopDefaultKey("", undefined, String(sid)) as ScopedStopKey] = {
         mode: it.mode,
         dropoffOnlyFrom: it.dropoffOnlyFrom,
         pickupOnlyTo: it.pickupOnlyTo,
@@ -502,8 +533,11 @@ function PaginatedEditableTable<T extends Record<string, any>>({
   addRowLabel = "Add",
   headerExtras,
   emptyText = "No rows.",
+  onSearchTyping,
+
 }: {
   title: string;
+  onSearchTyping?: (value: string) => void
   rows: T[];
   onChange: (next: T[]) => void;
   visibleIndex?: number[];
@@ -624,7 +658,11 @@ function PaginatedEditableTable<T extends Record<string, any>>({
 
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setQuery(v);
+                onSearchTyping?.(v);        // ← notify parent on every keystroke
+              }}
               placeholder={`Search…  (e.g. route_id == "18" && service_id == "6")`}
               style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e3e3e3", width: 320 }}
             />
@@ -873,22 +911,69 @@ export default function App() {
   }, []);
 
 
+  // Apply a pickup/dropoff/custom rule to only the trips in one section (Summary block)
+  const applySectionRule = useCallback(
+    (args: {
+      tripIds: string[];      // the trips in the Summary section being edited
+      stopId: string;         // the stop you're editing inside that section
+      rule: ODRestriction | null; // the new rule for those trips (or null to clear)
+    }) => {
+      const { tripIds, stopId, rule } = args;
 
-  const handleStopDefaultChange = useCallback((stop_id: string, nextRule: ODRestriction | null) => {
+      setProject((prev: any) => {
+        const curr: RestrictionsMap = { ...(prev?.extras?.restrictions ?? {}) };
+
+        for (const tid of tripIds) {
+          const k = `${tid}::${stopId}`;
+          if (rule) curr[k] = normalizeRule(rule);
+          else delete curr[k];
+        }
+
+        return {
+          ...(prev ?? {}),
+          extras: { ...(prev?.extras ?? {}), restrictions: curr },
+        };
+      });
+    },
+    []
+  );
+
+
+
+  const handleStopDefaultChange = useCallback((
+    route_id: string,
+    direction_id: 0 | 1 | undefined,
+    stop_id: string,
+    nextRule: ODRestriction | null
+  ) => {
     setProject((prev: any) => {
       const curr: StopDefaultsMap = prev?.extras?.stopDefaults ?? {};
+      const k: ScopedStopKey = stopDefaultKey(route_id ?? "", direction_id, stop_id);
       const next: StopDefaultsMap = { ...curr };
-      if (nextRule) next[stop_id] = nextRule;
-      else delete next[stop_id];
-      return {
-        ...(prev ?? {}),
-        extras: { ...(prev?.extras ?? {}), stopDefaults: next }
-      };
+      if (nextRule) next[k] = nextRule;
+      else delete next[k];
+      return { ...(prev ?? {}), extras: { ...(prev?.extras ?? {}), stopDefaults: next } };
     });
   }, []);
 
-  const getStopDefault = useCallback((stop_id: string): ODRestriction | undefined => {
-    return (project?.extras?.stopDefaults ?? {})[stop_id];
+  const getStopDefault = useCallback((
+    route_id: string | undefined,
+    direction_id: 0 | 1 | undefined,
+    stop_id: string
+  ): ODRestriction | undefined => {
+    const map = (project?.extras?.stopDefaults ?? {}) as StopDefaultsMap;
+    if (!stop_id) return undefined;
+
+    // 1) exact (route + dir + stop)
+    const exact = map[stopDefaultKey(route_id ?? "", direction_id, stop_id)];
+    if (exact) return exact;
+
+    // 2) route + any-direction
+    const anyDir = map[stopDefaultKey(route_id ?? "", undefined, stop_id)];
+    if (anyDir) return anyDir;
+
+    // 3) global (no route, any-direction)
+    return map[stopDefaultKey("", undefined, stop_id)];
   }, [project?.extras?.stopDefaults]);
 
 
@@ -1012,6 +1097,17 @@ export default function App() {
 
   const [selectedStopTime, setSelectedStopTime] =
     useState<{ trip_id: string; stop_sequence: number } | null>(null);
+
+  // If a stop_time row is selected, recover its stop_id so we can force-render that stop
+  const selectedStopIdFromRow = useMemo(() => {
+    if (!selectedStopTime) return null;
+    const row = stopTimes.find(
+      st =>
+        st.trip_id === selectedStopTime.trip_id &&
+        Number(st.stop_sequence) === Number(selectedStopTime.stop_sequence)
+    );
+    return row?.stop_id ?? null;
+  }, [selectedStopTime, stopTimes]);
 
     // --- DnD state for stop_times ---
   const [dragInfo, setDragInfo] = useState<{ trip_id: string; from: number } | null>(null);
@@ -1204,13 +1300,17 @@ export default function App() {
 
     const b = mapBounds;
 
-    // If scoped view is on, filter the base stops by keepStopIds; else use all stops
+    // Always include explicitly selected stop(s), even if they’re not yet linked to a trip in the selected route
+    const extras = new Set<string>();
+    if (selectedStopId) extras.add(selectedStopId);
+    if (selectedStopIdFromRow) extras.add(selectedStopIdFromRow);
+
     const base = scopedKeep
-      ? stops.filter(s => scopedKeep.keepStopIds.has(s.stop_id))
+      ? stops.filter(s => scopedKeep.keepStopIds.has(s.stop_id) || extras.has(s.stop_id))
       : stops;
 
     return base.filter(s => b.contains(L.latLng(s.stop_lat, s.stop_lon)));
-  }, [showStops, mapBounds, mapZoom, stops, scopedKeep]);
+  }, [showStops, mapBounds, mapZoom, stops, scopedKeep, selectedStopId, selectedStopIdFromRow]);
 
 
 
@@ -1802,10 +1902,12 @@ const addStopTimeRow = () => {
           obj.extras?.restrictions ??
           obj.restrictions ?? {};
 
-        const savedStopDefaults: StopDefaultsMap =
+        const savedStopDefaults: StopDefaultsMap = normalizeSavedStopDefaults(
           obj.project?.extras?.stopDefaults ??
           obj.extras?.stopDefaults ??
-          {};
+          obj.stopDefaults ?? // older saves, just in case
+          {}
+        );
 
         // ✅ add this:
         const savedShapeByRoute: ShapeByRoute =
@@ -1974,9 +2076,10 @@ const addStopTimeRow = () => {
               obj.restrictions ??
               {}
             ),
-            stopDefaults: (
+            stopDefaults: normalizeSavedStopDefaults(
               obj.project?.extras?.stopDefaults ??
               obj.extras?.stopDefaults ??
+              obj.stopDefaults ??
               {}
             ),
             shapeByRoute: (
@@ -2070,29 +2173,29 @@ const addStopTimeRow = () => {
         extras: { ...(prev?.extras ?? {}), restrictions: next },
       }));
 
-      // 🟢 Also update stopDefaults so left-column reflects imported rules
-      const inferredStopDefaults: Record<string, ODRestriction> = {};
+      // Replace: const inferredStopDefaults: Record<string, ODRestriction> = {};
+      const inferredStopDefaults: StopDefaultsMap = {} as any;
 
-      // Derive each stop's overall mode (simplified heuristic)
+      // Replace the whole for-loop with this version:
       for (const [key, rule] of Object.entries(next)) {
         const [, stop_id] = key.split("::");
         if (!stop_id) continue;
 
-        // normalize once, reuse (prevents “redeclare” errors and TS2367)
         const ruleMode: StopRuleMode = asMode((rule as any)?.mode);
-        // or: const ruleMode: StopRuleMode = asMode(val?.mode);  // depending on variable name in that block
-        if (!stop_id) continue;
-        // skip when it's effectively "normal" (i.e., not one of the three special modes)
+        // keep only special modes
         if (ruleMode !== "pickup" && ruleMode !== "dropoff" && ruleMode !== "custom") continue;
-        const existing = inferredStopDefaults[stop_id];
+
+        // write/read using scoped key (global: no route, any direction)
+        const scopedKey = stopDefaultKey("", undefined, stop_id) as ScopedStopKey;
+        const existing = inferredStopDefaults[scopedKey];
         const currentMode: StopRuleMode = asMode(existing?.mode);
 
         if (!existing) {
-          inferredStopDefaults[stop_id] = { ...(rule as any), mode: ruleMode };
+          inferredStopDefaults[scopedKey] = { ...(rule as any), mode: ruleMode };
         } else if (currentMode !== "custom" && ruleMode === "custom") {
-          inferredStopDefaults[stop_id] = { ...(rule as any), mode: ruleMode };
+          inferredStopDefaults[scopedKey] = { ...(rule as any), mode: ruleMode };
         } else if (currentMode === "normal") {
-          inferredStopDefaults[stop_id] = { ...(rule as any), mode: ruleMode };
+          inferredStopDefaults[scopedKey] = { ...(rule as any), mode: ruleMode };
         }
       }
 
@@ -3450,7 +3553,6 @@ async function buildShapeAutoForSelectedRoute(forceCreate = false) {
 }
 
 /** Clear shape points for the selected route’s shape_id */
-/** Clear shape points for the selected route’s shape_id */
 /** Clear shape points for any selected routes (multiselect-safe) */
 function clearShapeForSelectedRoute() {
   const targetRouteIds = (() => {
@@ -3552,57 +3654,44 @@ useEffect(() => {
       
     <div className="container" style={{ padding: 16 }}>
       <style>{
-        `.toolbar *{
-          font-size: 13px!important;
+        `.toolbar * { font-size: 13px !important; }
+        .toolbar { margin: 0; }
+
+        /* Unify toolbar font sizes */
+        .card.section .card-body { font-size: 13px; }
+        .card.section .card-body label,
+        .card.section .card-body input,
+        .card.section .card-body select,
+        .card.section .card-body button { font-size: 13px !important; }
+        .card.section .card-body h3,
+        .card.section .card-body h1 { font-size: 15px; font-weight: 600; }
+
+        /* Normalize toolbar text sizes */
+        .toolbar .btn,
+        .toolbar .file-btn,
+        .toolbar label,
+        .toolbar input,
+        .toolbar select,
+        .toolbar span {
+          font-size: 13px;
+          line-height: 1.25;
         }
-          .toolbar{
-          margin: 0;}
+
+        /* Keep headings slightly larger */
+        .toolbar h1,
+        .toolbar h3 {
+          font-size: 15px;
+          font-weight: 600;
+        }
+
         .busy-fab {
           position: fixed; right: 16px; bottom: 16px;
-          /* --- Unify toolbar font sizes --- */
-          .card.section .card-body {
-            font-size: 13px;
-          }
-
-          
-
-          .card.section .card-body label,
-          .card.section .card-body input,
-          .card.section .card-body select,
-          .card.section .card-body button {
-            font-size: 13px !important;
-          }
-
-          .card.section .card-body h3,
-          .card.section .card-body h1 {
-            font-size: 15px;
-            font-weight: 600;
-          }
-            /* Normalize toolbar text sizes */
-          .toolbar { font-size: 13px; }
-
-          /* Ensure form controls + buttons actually match the base size */
-          .toolbar .btn,
-          .toolbar .file-btn,
-          .toolbar label,
-          .toolbar input,
-          .toolbar select,
-          .toolbar span {
-            font-size: 13px;
-            line-height: 1.25;
-          }
-
-          /* Keep headings slightly larger */
-          .toolbar h1,
-          .toolbar h3 {
-            font-size: 15px;
-            font-weight: 600;
-          }
           background: #111; color: #fff; border: none; border-radius: 999px;
           padding: 10px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.18);
           display: inline-flex; align-items: center; gap: 8px; z-index: 9999;
           opacity: .92; cursor: default;
         }
+
         tr[draggable="true"] { user-select: none; }
         .spinner {
           width: 16px; height: 16px; border-radius: 50%;
@@ -3610,10 +3699,18 @@ useEffect(() => {
           animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
         .map-shell.bw .leaflet-tile { filter: grayscale(1) contrast(1.05) brightness(1.0); }
-        .route-halo-pulse { animation: haloPulse 1.8s ease-in-out infinite !important; filter: drop-shadow(0 0 4px rgba(255,255,255,0.9)); stroke: #ffffff !important; stroke-linecap: round !important; }
-        @keyframes haloPulse { 0%{stroke-opacity:.65;stroke-width:10px;} 50%{stroke-opacity:.2;stroke-width:16px;} 100%{stroke-opacity:.65;stroke-width:10px;} }
-      `}</style>
+        .route-halo-pulse {
+          animation: haloPulse 1.8s ease-in-out infinite !important;
+          filter: drop-shadow(0 0 4px rgba(255,255,255,0.9));
+          stroke: #ffffff !important; stroke-linecap: round !important;
+        }
+        @keyframes haloPulse {
+          0%{stroke-opacity:.65;stroke-width:10px;}
+          50%{stroke-opacity:.2;stroke-width:16px;}
+          100%{stroke-opacity:.65;stroke-width:10px;}
+        }`}</style>
 
 
       {banner && (
@@ -3989,53 +4086,55 @@ useEffect(() => {
                   alignItems: "center",
                   pointerEvents: "auto",
                 }}
-                // prevent clicks from bubbling to Leaflet
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Only show 'Move here' when a stop is selected */}
+                {/* Always allow adding a stop from the menu (even if a route is selected) */}
+                <button
+                  className="btn"
+                  onClick={() => {
+                    if (mapZoom < MIN_ADD_ZOOM) {
+                      setBanner({ kind: "info", text: `Zoom in to at least ${MIN_ADD_ZOOM} to add stops.` });
+                      setTimeout(() => setBanner(null), 1500);
+                      return;
+                    }
+                    addStopAt(mapClickMenu.lat, mapClickMenu.lng);
+                    setMapClickMenu(null);
+                  }}
+                >
+                  Add stop
+                </button>
+
+                {/* Move selected stop to here (only if a stop is selected) */}
                 {selectedStopId && (
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setSelectedStopId(null);                    // deselect current
-                        addStopAt(mapClickMenu.lat, mapClickMenu.lng); // add & (inside addStopAt) select new one
-                        setMapClickMenu(null);
-                      }}
-                    >
-                      Add stop
-                    </button>
-                  )}
-
-                  {selectedStopId && (
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        relocateSelectedStop(mapClickMenu.lat, mapClickMenu.lng);
-                        setMapClickMenu(null);
-                      }}
-                    >
-                      Move here
-                    </button>
-                  )}
-
                   <button
                     className="btn"
                     onClick={() => {
-                      if (selectedStopId) setSelectedStopId(null);
-                      else if (selectedRouteId) {
-                        setSelectedRouteId(null);
-                        setSelectedRouteIds(new Set());
-                      }
+                      relocateSelectedStop(mapClickMenu.lat, mapClickMenu.lng);
                       setMapClickMenu(null);
                     }}
                   >
-                    Deselect
+                    Move here
                   </button>
+                )}
 
-                  <button className="btn" onClick={() => setMapClickMenu(null)} title="Close" style={{ padding: "4px 8px" }}>
-                    ×
-                  </button>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    if (selectedStopId) setSelectedStopId(null);
+                    else if (selectedRouteId) {
+                      setSelectedRouteId(null);
+                      setSelectedRouteIds(new Set());
+                    }
+                    setMapClickMenu(null);
+                  }}
+                >
+                  Deselect
+                </button>
+
+                <button className="btn" onClick={() => setMapClickMenu(null)} title="Close" style={{ padding: "4px 8px" }}>
+                  ×
+                </button>
               </div>
             )}
           </div>
@@ -4050,6 +4149,13 @@ useEffect(() => {
           onChange={setRoutes}
           visibleIndex={routesVisibleIdx}
           initialPageSize={10}
+          onSearchTyping={() => {
+            // Deselect immediately when the user types in the routes search box
+            if (selectedRouteId || selectedRouteIds.size) {
+              setSelectedRouteId(null);
+              setSelectedRouteIds(new Set());
+            }
+          }}
           onRowClick={(row, e) => {
             if (isBusy) return;
             const rid = (row as RouteRow).route_id;
@@ -4141,13 +4247,22 @@ useEffect(() => {
           selectedRouteId={selectedRouteId}
           initialRestrictions={(project?.extras?.restrictions as RestrictionsMap) ?? EMPTY_OBJ}
           initialStopDefaults={(project?.extras?.stopDefaults as StopDefaultsMap) ?? EMPTY_OBJ}
+
+          // still keep bulk replace if PatternMatrix ever sends a full map
           onRestrictionsChange={handleRestrictionsChange}
+
+          // NEW: targeted, section-scoped updates
+          onApplyRuleToSection={applySectionRule}
+
+          // keep this ONLY for the UI-level "defaults" screen;
+          // Summary should call onApplyRuleToSection instead of this one.
           onStopDefaultsChange={(map) =>
             setProject((prev: any) => ({
               ...(prev ?? {}),
               extras: { ...(prev?.extras ?? {}), stopDefaults: map },
             }))
           }
+
           onEditTime={(trip_id, stop_id, newUiTime) => {
             setStopTimes((prev) =>
               prev.map((st) =>
