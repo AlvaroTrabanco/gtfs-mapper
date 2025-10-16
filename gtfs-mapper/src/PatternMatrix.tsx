@@ -1,6 +1,44 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+
+// Reusable "Select all" with indeterminate state
+function SelectAllCheckbox({
+  label,
+  totalCount,
+  selectedCount,
+  onToggle,
+}: {
+  label: string;
+  totalCount: number;
+  selectedCount: number;
+  onToggle: (checked: boolean) => void;
+}) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const all = totalCount > 0 && selectedCount === totalCount;
+  const none = selectedCount === 0;
+  const some = !none && !all;
+
+  React.useEffect(() => {
+    if (ref.current) ref.current.indeterminate = some;
+  }, [some]);
+
+  return (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={all}
+        onChange={(e) => onToggle(e.target.checked)}
+      />
+      <span style={{ fontSize: 12, opacity: 0.8 }}>{label}</span>
+      <span style={{ fontSize: 12, opacity: 0.55 }}>
+        ({selectedCount}/{totalCount})
+      </span>
+    </label>
+  );
+}
+
 /* ---------------- Small helper ---------------- */
 function uniq<T>(arr: T[]) { return Array.from(new Set(arr)); }
 
@@ -192,12 +230,7 @@ function StopRuleEditor({
   const ref = useClickAway<HTMLDivElement>(onClose);
   if (!open) return null;
   return (
-    <div
-      ref={ref}
-      style={{}}
-      role="dialog"
-      aria-label="Bulk stop rule editor"
-    >
+    <div ref={ref} role="dialog" aria-label="Bulk stop rule editor">
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 12, color: "#555" }}>Stop rule:</span>
         <select
@@ -217,29 +250,48 @@ function StopRuleEditor({
 
       {mode === "custom" && (
         <div style={{ display: "grid", gap: 12 }}>
+          {/* DROP-OFF BLOCK */}
           <div>
-            <div style={{ fontSize: 12, marginBottom: 6 }}><b>Dropoff allowed when boarded at…</b></div>
+            <div style={{ fontSize: 12, marginBottom: 6 }}>
+              <b>Dropoff allowed when boarded at…</b>
+            </div>
+
+            <div style={{ marginBottom: 6 }}>
+              <SelectAllCheckbox
+                label="Select all origins"
+                totalCount={upstreamStops.length}
+                selectedCount={dropoffOnlyFrom?.length ?? 0}
+                onToggle={(checked) => {
+                  const nextIds = checked ? upstreamStops.map((s) => s.stop_id) : [];
+                  onChangeDropoffOnlyFrom(nextIds);
+                }}
+              />
+            </div>
+
             <div style={{ maxHeight: 160, overflow: "auto", border: "1px solid #eee", borderRadius: 6, padding: 6 }}>
               {upstreamStops.length === 0 ? (
                 <div style={{ fontSize: 12, color: "#777" }}>No upstream stops.</div>
-              ) : upstreamStops.map((s) => {
-                const checked = !!dropoffOnlyFrom?.includes(s.stop_id);
-                return (
-                  <label key={s.stop_id} style={{ display: "flex", gap: 8, fontSize: 12, padding: "3px 0" }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        const next = new Set(dropoffOnlyFrom ?? []);
-                        e.target.checked ? next.add(s.stop_id) : next.delete(s.stop_id);
-                        onChangeDropoffOnlyFrom(Array.from(next));
-                      }}
-                    />
-                    <span>{s.stop_name}</span>
-                  </label>
-                );
-              })}
+              ) : (
+                upstreamStops.map((s) => {
+                  const checked = !!dropoffOnlyFrom?.includes(s.stop_id);
+                  return (
+                    <label key={s.stop_id} style={{ display: "flex", gap: 8, fontSize: 12, padding: "3px 0" }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = new Set(dropoffOnlyFrom ?? []);
+                          e.target.checked ? next.add(s.stop_id) : next.delete(s.stop_id);
+                          onChangeDropoffOnlyFrom(Array.from(next));
+                        }}
+                      />
+                      <span>{s.stop_name}</span>
+                    </label>
+                  );
+                })
+              )}
             </div>
+
             <div style={{ marginTop: 6 }}>
               {(dropoffOnlyFrom ?? []).map((id) => {
                 const it = upstreamStops.find((x) => x.stop_id === id);
@@ -248,29 +300,48 @@ function StopRuleEditor({
             </div>
           </div>
 
+          {/* PICKUP BLOCK */}
           <div>
-            <div style={{ fontSize: 12, marginBottom: 6 }}><b>Pickup allowed only to…</b></div>
+            <div style={{ fontSize: 12, marginBottom: 6 }}>
+              <b>Pickup allowed only to…</b>
+            </div>
+
+            <div style={{ marginBottom: 6 }}>
+              <SelectAllCheckbox
+                label="Select all destinations"
+                totalCount={downstreamStops.length}
+                selectedCount={pickupOnlyTo?.length ?? 0}
+                onToggle={(checked) => {
+                  const nextIds = checked ? downstreamStops.map((s) => s.stop_id) : [];
+                  onChangePickupOnlyTo(nextIds);
+                }}
+              />
+            </div>
+
             <div style={{ maxHeight: 160, overflow: "auto", border: "1px solid #eee", borderRadius: 6, padding: 6 }}>
               {downstreamStops.length === 0 ? (
                 <div style={{ fontSize: 12, color: "#777" }}>No downstream stops.</div>
-              ) : downstreamStops.map((s) => {
-                const checked = !!pickupOnlyTo?.includes(s.stop_id);
-                return (
-                  <label key={s.stop_id} style={{ display: "flex", gap: 8, fontSize: 12, padding: "3px 0" }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        const next = new Set(pickupOnlyTo ?? []);
-                        e.target.checked ? next.add(s.stop_id) : next.delete(s.stop_id);
-                        onChangePickupOnlyTo(Array.from(next));
-                      }}
-                    />
-                    <span>{s.stop_name}</span>
-                  </label>
-                );
-              })}
+              ) : (
+                downstreamStops.map((s) => {
+                  const checked = !!pickupOnlyTo?.includes(s.stop_id);
+                  return (
+                    <label key={s.stop_id} style={{ display: "flex", gap: 8, fontSize: 12, padding: "3px 0" }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = new Set(pickupOnlyTo ?? []);
+                          e.target.checked ? next.add(s.stop_id) : next.delete(s.stop_id);
+                          onChangePickupOnlyTo(Array.from(next));
+                        }}
+                      />
+                      <span>{s.stop_name}</span>
+                    </label>
+                  );
+                })
+              )}
             </div>
+
             <div style={{ marginTop: 6 }}>
               {(pickupOnlyTo ?? []).map((id) => {
                 const it = downstreamStops.find((x) => x.stop_id === id);
@@ -300,10 +371,8 @@ function StopBulkRuleEditor({
   onClose: () => void;
   mode: StopRuleMode;
   setMode: (m: StopRuleMode) => void;
-
   upstreamPool: Stop[];
   downstreamPool: Stop[];
-
   bulkDropFrom: string[];
   bulkPickTo: string[];
   setBulkDropFrom: (ids: string[]) => void;
@@ -313,12 +382,7 @@ function StopBulkRuleEditor({
   const ref = useClickAway<HTMLDivElement>(onClose);
   if (!open) return null;
   return (
-    <div
-      ref={ref}
-      style={{}}
-      role="dialog"
-      aria-label="Bulk stop rule editor"
-    >
+    <div ref={ref} role="dialog" aria-label="Bulk stop rule editor">
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 12, color: "#555" }}>Stop rule (bulk):</span>
         <select value={mode} onChange={(e) => setMode(e.target.value as StopRuleMode)} style={{ fontSize: 12 }}>
@@ -331,8 +395,21 @@ function StopBulkRuleEditor({
 
       {mode === "custom" && (
         <div style={{ display: "grid", gap: 12 }}>
+          {/* DROP-OFF BLOCK */}
           <div>
             <div style={{ fontSize: 12, marginBottom: 6 }}><b>Dropoff allowed when boarded at…</b></div>
+
+            <div style={{ marginBottom: 6 }}>
+              <SelectAllCheckbox
+                label="Select all origins"
+                totalCount={upstreamPool.length}
+                selectedCount={bulkDropFrom.length}
+                onToggle={(checked) => {
+                  setBulkDropFrom(checked ? upstreamPool.map(s => s.stop_id) : []);
+                }}
+              />
+            </div>
+
             <div style={{ maxHeight: 160, overflow: "auto", border: "1px solid #eee", borderRadius: 6, padding: 6 }}>
               {upstreamPool.length === 0 ? (
                 <div style={{ fontSize: 12, color: "#777" }}>No upstream stops.</div>
@@ -356,8 +433,21 @@ function StopBulkRuleEditor({
             </div>
           </div>
 
+          {/* PICKUP BLOCK */}
           <div>
             <div style={{ fontSize: 12, marginBottom: 6 }}><b>Pickup allowed only to…</b></div>
+
+            <div style={{ marginBottom: 6 }}>
+              <SelectAllCheckbox
+                label="Select all destinations"
+                totalCount={downstreamPool.length}
+                selectedCount={bulkPickTo.length}
+                onToggle={(checked) => {
+                  setBulkPickTo(checked ? downstreamPool.map(s => s.stop_id) : []);
+                }}
+              />
+            </div>
+
             <div style={{ maxHeight: 160, overflow: "auto", border: "1px solid #eee", borderRadius: 6, padding: 6 }}>
               {downstreamPool.length === 0 ? (
                 <div style={{ fontSize: 12, color: "#777" }}>No downstream stops.</div>
