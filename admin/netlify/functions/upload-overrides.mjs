@@ -27,12 +27,26 @@ export const handler = async (event) => {
 
     const owner  = process.env.REPO_OWNER;
     const repo   = process.env.REPO_NAME;
-    const path   = process.env.OVERRIDES_PATH || "automation/overrides.json";
+    const rawPath = process.env.OVERRIDES_PATH || "gtfs-mapper/automation/overrides.json";
+    const path = rawPath.replace(/\\/g, "/");
+    if (path !== "gtfs-mapper/automation/overrides.json") {
+      return { statusCode: 500, body: `Server misconfigured: OVERRIDES_PATH must be "gtfs-mapper/automation/overrides.json" (got "${path}")` };
+    }
     const branch = process.env.TARGET_BRANCH || "main";
     const token  = process.env.GH_TOKEN;
 
     if (!owner || !repo || !token) {
-      return { statusCode: 500, body: "Server misconfigured: missing repo or token envs" };
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          ok: true,
+          repo: `${owner}/${repo}`,
+          branch,
+          path,
+          commit: data.commit?.sha,
+          html_url: data.content?.html_url || null,
+        }),
+      };
     }
 
     const octokit = new Octokit({ auth: token });
