@@ -22,7 +22,7 @@ const SRC_URL = process.env.FLIX_URL || "http://gtfs.gis.flix.tech/gtfs_generic_
 const OUT_DIR = process.env.OUT_DIR || "dist";
 const OUT_ZIP = process.env.OUT_ZIP || "gtfs_flixbus_fixed.zip";
 const OUT_REPORT = process.env.OUT_REPORT || "report.json";
-const OVERRIDES_PATH = process.env.OVERRIDES_PATH || "automation/overrides.json";
+const OVERRIDES_PATH = process.env.OVERRIDES || "automation/overrides.json";
 const OVERRIDES_URL = process.env.OVERRIDES_URL || "";
 
 // ---------- tiny csv helpers ----------
@@ -58,6 +58,7 @@ async function loadOverridesText() {
 
 // ---------- compile OD (mirrors your App’s logic) ----------
 function compileTripsWithOD({ trips, stop_times }, restrictions) {
+  // Group stop_times by trip, sorted by stop_sequence
   const stopTimesByTrip = new Map();
   for (const st of stop_times) {
     if (!stopTimesByTrip.has(st.trip_id)) stopTimesByTrip.set(st.trip_id, []);
@@ -72,89 +73,136 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const rows = (stopTimesByTrip.get(t.trip_id) || []).slice();
     if (!rows.length) continue;
 
-    const rulesByIdx = new Map();
+    // Collect all rules that target this trip
+    // - direct per-stop "pickup"/"dropoff" rules (exact key match)
+    // - "custom" pivot rules with arrays (dropoffOnlyFrom, pickupOnlyTo)
+    const perIndex = rows.map(() => ({ pickup: 0, dropoff: 0 })); // desired flags per original index
+    const customPivotIdxs = new Set();
+
+    // index stops for quick lookups
+    const indicesByStopId = new Map();
     rows.forEach((st, i) => {
-      const key = `${t.trip_id}::${st.stop_id}`;
-      const r = restrictions[key];
-      if (r && r.mode && r.mode !== "normal") rulesByIdx.set(i, r);
+      if (!indicesByStopId.has(st.stop_id)) indicesByStopId.set(st.stop_id, []);
+      indicesByStopId.get(st.stop_id).push(i);
     });
 
-    const hasCustom = Array.from(rulesByIdx.values()).some(r => r.mode === "custom");
+    // Pass 1: apply explicit per-stop pickup/dropoff rules and collect custom pivots
+    for (let i = 0; i < rows.length; i++) {
+      const key = `${t.trip_id}::${rows[i].stop_id}`;
+      const rule = restrictions[key];
+      if (!rule || !rule.mode || rule.mode === "normal") continue;
 
-    if (!hasCustom) {
-      // single trip with pickup/dropoff toggles
+      if (rule.mode === "pickup") {
+        // pickup-only => cannot drop off
+        perIndex[i].dropoff = 1;
+        METRICS.stopTimes.modified++; touchTrip(t.trip_id); touchStop(rows[i].stop_id);
+      } else if (rule.mode === "dropoff") {
+        // dropoff-only => cannot pick up
+        perIndex[i].pickup = 1;
+        METRICS.stopTimes.modified++; touchTrip(t.trip_id); touchStop(rows[i].stop_id);
+      } else if (rule.mode === "custom") {
+        customPivotIdxs.add(i);
+      }
+    }
+
+    // Pass 2: for each custom pivot, honor arrays:
+    // - For any stop at or BEFORE pivot whose stop_id is in dropoffOnlyFrom => pickup=1 (dropoff-only)
+    // - For any stop at or AFTER pivot whose stop_id is in pickupOnlyTo     => dropoff=1 (pickup-only)
+    if (customPivotIdxs.size) {
+      for (const pivotIdx of customPivotIdxs) {
+        const pivotKey = `${t.trip_id}::${rows[pivotIdx].stop_id}`;
+        const rule = restrictions[pivotKey] || {};
+        const dropFrom = new Set(rule.dropoffOnlyFrom || []);
+        const pickTo   = new Set(rule.pickupOnlyTo || []);
+
+        if (dropFrom.size) {
+          for (let i = 0; i <= pivotIdx; i++) {
+            const sid = rows[i].stop_id;
+            if (dropFrom.has(sid)) {
+              if (perIndex[i].pickup !== 1) {
+                perIndex[i].pickup = 1;
+                METRICS.stopTimes.modified++;
+              }
+              touchTrip(t.trip_id); touchStop(sid);
+            }
+          }
+        }
+
+        if (pickTo.size) {
+          for (let i = pivotIdx; i < rows.length; i++) {
+            const sid = rows[i].stop_id;
+            if (pickTo.has(sid)) {
+              if (perIndex[i].dropoff !== 1) {
+                perIndex[i].dropoff = 1;
+                METRICS.stopTimes.modified++;
+              }
+              touchTrip(t.trip_id); touchStop(sid);
+            }
+          }
+        }
+      }
+    }
+
+    // If there are no custom pivots, just output the single trip with toggles
+    if (!customPivotIdxs.size) {
       outTrips.push({ ...t });
       for (let i = 0; i < rows.length; i++) {
         const st = rows[i];
-        const r = rulesByIdx.get(i);
-        let pickup_type = 0, drop_off_type = 0;
-        if (r?.mode === "pickup")  { drop_off_type = 1; METRICS.stopTimes.modified++; touchTrip(t.trip_id); touchStop(st.stop_id); }
-        if (r?.mode === "dropoff") { pickup_type  = 1; METRICS.stopTimes.modified++; touchTrip(t.trip_id); touchStop(st.stop_id); }
-
         const arr = toHHMMSS(st.arrival_time);
         const dep = toHHMMSS(st.departure_time);
-
+        if (!arr && !dep) continue;
         outStopTimes.push({
           trip_id: t.trip_id,
           stop_id: st.stop_id,
-          stop_sequence: 0, // will resequence later
+          stop_sequence: 0, // resequenced later
           arrival_time: arr,
           departure_time: dep,
-          pickup_type,
-          drop_off_type,
+          pickup_type: perIndex[i].pickup,
+          drop_off_type: perIndex[i].dropoff,
         });
       }
       continue;
     }
 
-    // custom OD: split into two segments around the first/last custom
-    const customIdxs = rows.map((_, i) => i).filter(i => rulesByIdx.get(i)?.mode === "custom");
-    const firstC = Math.min(...customIdxs);
-    const lastC  = Math.max(...customIdxs);
-
-    // Up segment
-    const upId = `${t.trip_id}__segA`;
-    METRICS.trips.createdSegments++;
-    outTrips.push({ ...t, trip_id: upId });
-    let addedUp = 0;
-    for (let i = 0; i <= lastC; i++) {
-      const st = rows[i];
-      const r = rulesByIdx.get(i);
-      let pickup_type = 0, drop_off_type = 0;
-      if (r?.mode === "pickup")  { drop_off_type = 1; METRICS.stopTimes.modified++; }
-      else if (r?.mode === "dropoff") { pickup_type = 1; METRICS.stopTimes.modified++; }
-      // IMPORTANT: for custom, do not force pickup/dropoff — segmentation alone enforces OD.
-      const arr = toHHMMSS(st.arrival_time);
-      const dep = toHHMMSS(st.departure_time);
-      outStopTimes.push({
-        trip_id: upId, stop_id: st.stop_id, stop_sequence: 0,
-        arrival_time: arr, departure_time: dep, pickup_type, drop_off_type
-      });
-      addedUp++; touchTrip(t.trip_id); touchStop(st.stop_id);
+    // With custom pivots: split into segments wherever "isCustom at index" toggles
+    // A pivot marks index i itself as "custom".
+    const isCustomIndex = new Set(customPivotIdxs);
+    const N = rows.length;
+    const boundaries = [0];
+    for (let i = 1; i < N; i++) {
+      const a = isCustomIndex.has(i - 1);
+      const b = isCustomIndex.has(i);
+      if (a !== b) boundaries.push(i);
     }
-    METRICS.stopTimes.added += addedUp;
+    boundaries.push(N);
 
-    // Down segment
-    const downId = `${t.trip_id}__segB`;
-    METRICS.trips.createdSegments++;
-    outTrips.push({ ...t, trip_id: downId });
-    let addedDown = 0;
-    for (let i = firstC; i < rows.length; i++) {
-      const st = rows[i];
-      const r = rulesByIdx.get(i);
-      let pickup_type = 0, drop_off_type = 0;
-      if (r?.mode === "pickup")  { drop_off_type = 1; METRICS.stopTimes.modified++; }
-      else if (r?.mode === "dropoff") { pickup_type = 1; METRICS.stopTimes.modified++; }
-      // IMPORTANT: for custom, do not force pickup/dropoff — segmentation alone enforces OD.
-      const arr = toHHMMSS(st.arrival_time);
-      const dep = toHHMMSS(st.departure_time);
-      outStopTimes.push({
-        trip_id: downId, stop_id: st.stop_id, stop_sequence: 0,
-        arrival_time: arr, departure_time: dep, pickup_type, drop_off_type
-      });
-      addedDown++; touchTrip(t.trip_id); touchStop(st.stop_id);
+    for (let s = 0; s < boundaries.length - 1; s++) {
+      const start = boundaries[s], end = boundaries[s + 1]; // [start, end)
+      const segId = `${t.trip_id}__seg${s + 1}`;
+      METRICS.trips.createdSegments++;
+
+      outTrips.push({ ...t, trip_id: segId });
+
+      let added = 0;
+      for (let i = start; i < end; i++) {
+        const st = rows[i];
+        const arrS = toHHMMSS(st.arrival_time);
+        const depS = toHHMMSS(st.departure_time);
+        if (!arrS && !depS) continue;
+
+        outStopTimes.push({
+          trip_id: segId,
+          stop_id: st.stop_id,
+          stop_sequence: 0, // resequenced later
+          arrival_time: arrS,
+          departure_time: depS,
+          pickup_type: perIndex[i].pickup,
+          drop_off_type: perIndex[i].dropoff,
+        });
+        added++; touchTrip(t.trip_id); touchStop(st.stop_id);
+      }
+      METRICS.stopTimes.added += added;
     }
-    METRICS.stopTimes.added += addedDown;
   }
 
   // resequence stop_times within each trip
@@ -224,21 +272,20 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       }
     }
 
-    // compile OD
-    const { trips: outTrips, stop_times: outStopTimes } = compileTripsWithOD({ trips, stop_times: stopTimes }, rules);
+    // compile OD with proper stop types
+    const { trips: outTrips, stop_times: outStopTimes } =
+      compileTripsWithOD({ trips, stop_times: stopTimes }, rules);
 
     // write new zip
     await fs.mkdir(OUT_DIR, { recursive: true });
     const outZip = new JSZip();
 
-    // passthrough
+    // passthrough (keep vendor formatting for shapes by default)
     if (agencies.length) outZip.file("agency.txt", csvify(agencies, ["agency_id","agency_name","agency_url","agency_timezone"]));
     if (stops.length)    outZip.file("stops.txt",  csvify(stops, ["stop_id","stop_name","stop_lat","stop_lon"]));
     if (routes.length)   outZip.file("routes.txt", csvify(routes, ["route_id","route_short_name","route_long_name","route_type","agency_id"]));
     if (services.length) outZip.file("calendar.txt", csvify(services, ["service_id","monday","tuesday","wednesday","thursday","friday","saturday","sunday","start_date","end_date"]));
-  
-    // Passthrough shapes untouched to avoid massive text output and keep vendor formatting.
-    if (raw.shapes) outZip.file("shapes.txt", raw.shapes, { binary: true });
+    if (raw.shapes)      outZip.file("shapes.txt", raw.shapes, { binary: true });
 
     // compiled trips + stop_times
     outZip.file("trips.txt", csvify(outTrips.map(tr => ({
@@ -259,7 +306,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const blob = await outZip.generateAsync({
       type: "nodebuffer",
       compression: "DEFLATE",
-      compressionOptions: { level: 9 } // max compression
+      compressionOptions: { level: 9 }
     });
 
     const outPath = path.join(OUT_DIR, OUT_ZIP);
