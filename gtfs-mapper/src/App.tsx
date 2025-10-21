@@ -622,11 +622,6 @@ function PaginatedEditableTable<T extends Record<string, any>>({
     [pageIdx, rows]
   );
 
-  const edit = (globalIndex: number, key: string, v: string) => {
-    const next = rows.slice();
-    next[globalIndex] = { ...next[globalIndex], [key]: v };
-    onChange(next);
-  };
 
 
   return (
@@ -3058,54 +3053,54 @@ const createTripForSelectedRoute = () => {
   }
 
   function compileTripsWithOD(
-    restrictions: Record<
-      string,
-      { mode: "normal" | "pickup" | "dropoff" | "custom"; dropoffOnlyFrom?: string[]; pickupOnlyTo?: string[] }
-    >,
+    restrictions: Record<string, { mode: "normal" | "pickup" | "dropoff" | "custom"; dropoffOnlyFrom?: string[]; pickupOnlyTo?: string[] }>,
     rowsByTrip: Map<string, StopTime[]>
   ) {
     const outTrips: Trip[] = [];
     const outStopTimes: StopTime[] = [];
 
+    const hhmmss = (t?: string) => toHHMMSS(t);
+
     for (const t of trips) {
-      const rows = (rowsByTrip.get(t.trip_id) ?? []).slice();
+      const rows = (rowsByTrip.get(t.trip_id) ?? []).slice().sort((a,b)=>a.stop_sequence-b.stop_sequence);
       if (!rows.length) continue;
 
-      const rulesByIdx = new Map<number, { mode: "normal" | "pickup" | "dropoff" | "custom"; dropoffOnlyFrom?: string[]; pickupOnlyTo?: string[] }>();
+      // collect rules by position
+      const rulesByIdx = new Map<number, ODRestriction>();
       rows.forEach((st, i) => {
-        const key = `${t.trip_id}::${st.stop_id}`;
-        const r = (restrictions as any)[key];
-        if (r && r.mode) rulesByIdx.set(i, r);
+        const r = restrictions[`${t.trip_id}::${st.stop_id}`];
+        if (r) rulesByIdx.set(i, r);
       });
 
       const hasCustom = Array.from(rulesByIdx.values()).some(r => r.mode === "custom");
 
+      // ▶ no custom: just emit single trip with plain pickup/dropoff flags
       if (!hasCustom) {
         outTrips.push({ ...t });
-        for (let i = 0; i < rows.length; i++) {
-          const st = rows[i];
-          const r = rulesByIdx.get(i);
+        rows.forEach((st) => {
+          const r = restrictions[`${t.trip_id}::${st.stop_id}`];
           let pickup_type = 0, drop_off_type = 0;
           if (r?.mode === "pickup")  drop_off_type = 1;
           if (r?.mode === "dropoff") pickup_type  = 1;
-
           outStopTimes.push({
             trip_id: t.trip_id,
             stop_id: st.stop_id,
             stop_sequence: 0,
-            arrival_time: toHHMMSS(st.arrival_time),
-            departure_time: toHHMMSS(st.departure_time),
+            arrival_time: hhmmss(st.arrival_time),
+            departure_time: hhmmss(st.departure_time),
             pickup_type,
             drop_off_type,
           });
-        }
+        });
         continue;
       }
 
+      // ▶ custom exists: find the span
       const customIdxs = rows.map((_, i) => i).filter(i => rulesByIdx.get(i)?.mode === "custom");
       const firstC = Math.min(...customIdxs);
       const lastC  = Math.max(...customIdxs);
 
+      // A) upstream segment (up to lastC) — same as before
       const upId = `${t.trip_id}__segA`;
       outTrips.push({ ...t, trip_id: upId });
       for (let i = 0; i <= lastC; i++) {
@@ -3114,14 +3109,19 @@ const createTripForSelectedRoute = () => {
         let pickup_type = 0, drop_off_type = 0;
         if (r?.mode === "pickup")  drop_off_type = 1;
         else if (r?.mode === "dropoff") pickup_type = 1;
-        else if (r?.mode === "custom") { pickup_type = 1; drop_off_type = 0; }
+        else if (r?.mode === "custom") { pickup_type = 1; drop_off_type = 0; } // no board in middle
         outStopTimes.push({
-          trip_id: upId, stop_id: st.stop_id, stop_sequence: 0,
-          arrival_time: toHHMMSS(st.arrival_time), departure_time: toHHMMSS(st.departure_time),
-          pickup_type, drop_off_type
+          trip_id: upId,
+          stop_id: st.stop_id,
+          stop_sequence: 0,
+          arrival_time: hhmmss(st.arrival_time),
+          departure_time: hhmmss(st.departure_time),
+          pickup_type,
+          drop_off_type,
         });
       }
 
+      // B) downstream segment (from firstC) — same as before
       const downId = `${t.trip_id}__segB`;
       outTrips.push({ ...t, trip_id: downId });
       for (let i = firstC; i < rows.length; i++) {
@@ -3130,11 +3130,51 @@ const createTripForSelectedRoute = () => {
         let pickup_type = 0, drop_off_type = 0;
         if (r?.mode === "pickup")  drop_off_type = 1;
         else if (r?.mode === "dropoff") pickup_type = 1;
-        else if (r?.mode === "custom") { pickup_type = 0; drop_off_type = 1; }
+        else if (r?.mode === "custom") { pickup_type = 0; drop_off_type = 1; } // no alight in middle
         outStopTimes.push({
-          trip_id: downId, stop_id: st.stop_id, stop_sequence: 0,
-          arrival_time: toHHMMSS(st.arrival_time), departure_time: toHHMMSS(st.departure_time),
-          pickup_type, drop_off_type
+          trip_id: downId,
+          stop_id: st.stop_id,
+          stop_sequence: 0,
+          arrival_time: hhmmss(st.arrival_time),
+          departure_time: hhmmss(st.departure_time),
+          pickup_type,
+          drop_off_type,
+        });
+      }
+
+      // C) “bridge” variant: keep non-custom stops untouched (0/0),
+      // and block only the custom-span indices (1/1). Explicit simple rules still override.
+      const bridgeId = `${t.trip_id}__bridge`;
+      outTrips.push({ ...t, trip_id: bridgeId });
+
+      for (let i = 0; i < rows.length; i++) {
+        const st = rows[i];
+
+        // default: full service
+        let pickup_type = 0;
+        let drop_off_type = 0;
+
+        const r = rulesByIdx.get(i);
+        if (r?.mode === "custom") {
+          // block both within Spain (your custom span)
+          pickup_type = 1;
+          drop_off_type = 1;
+        } else if (r?.mode === "pickup") {
+          // explicit pickup-only at this exact stop (if you set it)
+          drop_off_type = 1;
+        } else if (r?.mode === "dropoff") {
+          // explicit dropoff-only at this exact stop (if you set it)
+          pickup_type = 1;
+        }
+
+        outStopTimes.push({
+          trip_id: bridgeId,
+          stop_id: st.stop_id,
+          stop_sequence: 0,
+          arrival_time: toHHMMSS(st.arrival_time),
+          departure_time: toHHMMSS(st.departure_time),
+          pickup_type,
+          drop_off_type,
         });
       }
     }
