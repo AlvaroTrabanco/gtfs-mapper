@@ -22,7 +22,7 @@ const SRC_URL = process.env.FLIX_URL || "http://gtfs.gis.flix.tech/gtfs_generic_
 const OUT_DIR = process.env.OUT_DIR || "dist";
 const OUT_ZIP = process.env.OUT_ZIP || "gtfs_flixbus_fixed.zip";
 const OUT_REPORT = process.env.OUT_REPORT || "report.json";
-const OVERRIDES_PATH = process.env.OVERRIDES || "automation/overrides.json";
+const OVERRIDES_PATH = process.env.OVERRIDES_PATH || "automation/overrides.json";
 const OVERRIDES_URL = process.env.OVERRIDES_URL || "";
 
 // ---------- tiny csv helpers ----------
@@ -63,7 +63,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     if (!stopTimesByTrip.has(st.trip_id)) stopTimesByTrip.set(st.trip_id, []);
     stopTimesByTrip.get(st.trip_id).push(st);
   }
-  for (const [tid, arr] of stopTimesByTrip) arr.sort((a,b)=>Number(a.stop_sequence)-Number(b.stop_sequence));
+  for (const [, arr] of stopTimesByTrip) arr.sort((a,b)=>Number(a.stop_sequence)-Number(b.stop_sequence));
 
   const outTrips = [];
   const outStopTimes = [];
@@ -93,7 +93,6 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
 
         const arr = toHHMMSS(st.arrival_time);
         const dep = toHHMMSS(st.departure_time);
-        if (!arr && !dep) continue;
 
         outStopTimes.push({
           trip_id: t.trip_id,
@@ -124,10 +123,9 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       let pickup_type = 0, drop_off_type = 0;
       if (r?.mode === "pickup")  { drop_off_type = 1; METRICS.stopTimes.modified++; }
       else if (r?.mode === "dropoff") { pickup_type = 1; METRICS.stopTimes.modified++; }
-      else if (r?.mode === "custom")  { pickup_type = 1; drop_off_type = 0; METRICS.stopTimes.modified++; } // board disabled, alight normal
+      // IMPORTANT: for custom, do not force pickup/dropoff — segmentation alone enforces OD.
       const arr = toHHMMSS(st.arrival_time);
       const dep = toHHMMSS(st.departure_time);
-      if (!arr && !dep) continue;
       outStopTimes.push({
         trip_id: upId, stop_id: st.stop_id, stop_sequence: 0,
         arrival_time: arr, departure_time: dep, pickup_type, drop_off_type
@@ -147,10 +145,9 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       let pickup_type = 0, drop_off_type = 0;
       if (r?.mode === "pickup")  { drop_off_type = 1; METRICS.stopTimes.modified++; }
       else if (r?.mode === "dropoff") { pickup_type = 1; METRICS.stopTimes.modified++; }
-      else if (r?.mode === "custom")  { pickup_type = 0; drop_off_type = 1; METRICS.stopTimes.modified++; } // board normal, alight disabled
+      // IMPORTANT: for custom, do not force pickup/dropoff — segmentation alone enforces OD.
       const arr = toHHMMSS(st.arrival_time);
       const dep = toHHMMSS(st.departure_time);
-      if (!arr && !dep) continue;
       outStopTimes.push({
         trip_id: downId, stop_id: st.stop_id, stop_sequence: 0,
         arrival_time: arr, departure_time: dep, pickup_type, drop_off_type
@@ -241,7 +238,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     if (services.length) outZip.file("calendar.txt", csvify(services, ["service_id","monday","tuesday","wednesday","thursday","friday","saturday","sunday","start_date","end_date"]));
   
     // Passthrough shapes untouched to avoid massive text output and keep vendor formatting.
-    if (raw.shapes)      outZip.file("shapes.txt", raw.shapes, { binary: true });
+    if (raw.shapes) outZip.file("shapes.txt", raw.shapes, { binary: true });
 
     // compiled trips + stop_times
     outZip.file("trips.txt", csvify(outTrips.map(tr => ({
