@@ -63,22 +63,21 @@ jobs:
             [ -z "$SLUG" ] && continue
             mkdir -p "site/$SLUG"
 
-            cat > "site/$SLUG/index.html" <<'EOF'
-            <!doctype html><meta charset="utf-8">
+            INDEX_HTML='<!doctype html><meta charset="utf-8">
             <title>{{TITLE}}</title>
             <link rel="stylesheet" href="../style.css">
             <h1>{{TITLE}}</h1>
             <p>Last updated: <span id="ts"></span></p>
             <div id="app"></div>
             <script>
-              document.getElementById('ts').textContent = new Date().toISOString();
+              document.getElementById("ts").textContent = new Date().toISOString();
             </script>
-            <script type="module" src="../app.js"></script>
-            EOF
+            <script type="module" src="../app.js"></script>'
 
+            printf "%s\n" "$INDEX_HTML" > "site/$SLUG/index.html"
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
-          done | sed -n '1!p' < automation/feeds.txt
-
+          done < automation/feeds.txt
+          
       - name: Root index
         shell: bash
         run: |
