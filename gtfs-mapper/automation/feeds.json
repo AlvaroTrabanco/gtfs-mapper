@@ -1,0 +1,12 @@
+{
+  "feeds": [
+    {
+      "slug": "flixbus",
+      "url": "http://gtfs.gis.flix.tech/gtfs_generic_eu.zip"
+    },
+    {
+      "slug": "ouibus",
+      "url": "https://example.com/path/to/ouibus-gtfs.zip"
+    }
+  ]
+}

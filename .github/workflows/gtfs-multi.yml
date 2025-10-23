@@ -1,0 +1,103 @@
+name: Build & Deploy GTFS Mapper
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install
+        run: npm ci
+
+      - name: Build site per feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          # Expect: automation/feeds.txt (list of slugs, one per line)
+          while IFS= read -r SLUG; do
+            [ -z "$SLUG" ] && continue
+            mkdir -p "site/$SLUG"
+
+            cat > "site/$SLUG/index.html" <<'EOF'
+            <!doctype html><meta charset="utf-8">
+            <title>{{TITLE}}</title>
+            <link rel="stylesheet" href="../style.css">
+            <h1>{{TITLE}}</h1>
+            <p>Last updated: <span id="ts"></span></p>
+            <div id="app"></div>
+            <script>
+            document.getElementById('ts').textContent = new Date().toISOString();
+            </script>
+            <script type="module" src="../app.js"></script>
+            EOF
+
+                        sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
+                    done < automation/feeds.txt
+
+      - name: Root index
+        shell: bash
+        run: |
+          mkdir -p site
+          cat > site/index.html <<'EOF'
+            <!doctype html><meta charset="utf-8">
+            <title>GTFS Mapper Feeds</title>
+            <h1>GTFS Mapper Feeds</h1>
+            <p>Last updated: <span id="ts"></span></p>
+            <ul id="list"></ul>
+            <script>
+            document.getElementById('ts').textContent = new Date().toISOString();
+            (async () => {
+                const res = await fetch('./feeds.json').catch(() => null);
+                const data = (res && res.ok) ? await res.json() : { "feeds": [] };
+                const ul = document.getElementById('list');
+                for (const slug of data.feeds) {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = './' + slug + '/';
+                a.textContent = slug;
+                li.appendChild(a);
+                ul.appendChild(li);
+                }
+            })();
+            </script>
+            EOF
+
+      - name: Expose feeds.json
+        run: |
+          cp automation/feeds.json site/feeds.json
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

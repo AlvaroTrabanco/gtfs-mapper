@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>GTFS Admin — Upload overrides.json</title>
+<title>GTFS Admin — Feeds & Overrides</title>
 
 <style>
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; }
@@ -21,15 +21,21 @@
   <form id="uploader">
     <label>Admin key</label>
     <input type="password" id="key" placeholder="Your ADMIN_KEY" required />
+    <label>Feed slug</label>
+    <input type="text" id="feedSlug" placeholder="e.g. flixbus" required />
 
-    <label>overrides.json</label>
+    <label>Feed URL</label>
+    <input type="text" id="feedUrl" placeholder="https://example.com/feed.zip (saved in feeds.json)" />
+    <p class="muted">If provided, this will be added/updated in <code>gtfs-mapper/automation/feeds.json</code>.</p>
+    <label>overrides-<slug>.json</label>
     <input type="file" id="file" accept="application/json" required />
 
     <label>Commit message <span class="muted">(optional)</span></label>
     <input type="text" id="msg" placeholder="chore: update overrides.json via admin uploader" />
 
-    <div style="display:flex; gap:8px; margin-top:12px;">
-      <button type="submit" class="primary">Upload & Commit</button>
+    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+      <button type="submit" class="primary">Upload & Commit overrides-<slug>.json</button>
+      <button type="button" id="saveFeedBtn">Save/Update feed (feeds.json)</button>
       <button type="button" id="previewBtn">Preview JSON</button>
       <button id="clearSaved" type="button">Clear saved form</button>
     </div>
@@ -40,6 +46,8 @@
 
 <script>
   const fnUrl = "/.netlify/functions/upload-overrides";
+
+  const feedsPath = "gtfs-mapper/automation/feeds.json"; // file to update
 
   const form = document.getElementById("uploader");
   const result = document.getElementById("result");
@@ -67,27 +75,24 @@
 
     try {
       const key = document.getElementById("key").value.trim();
-      const msg = document.getElementById("msg").value.trim();
+      const slug = document.getElementById("feedSlug").value.trim();
+      if (!slug) throw new Error("Feed slug is required.");
 
+      const msg = document.getElementById("msg").value.trim();
       const file = fileInput.files?.[0];
-      if (!file) { result.textContent = "Pick a file."; return; }
+      if (!file) throw new Error("Pick a file.");
 
       const overridesJson = lastJsonText || await file.text();
+      // Ensure file path = overrides-<slug>.json (avoid double -slug)
+      const targetPath = `gtfs-mapper/automation/overrides-${slug}.json`;
 
-      const res = await fetch(fnUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key, overridesJson, commitMessage: msg || undefined })
+      const payload = await callUploadFunction({
+        key,
+        overridesJson,
+        commitMessage: msg || `chore: update overrides-${slug}.json via admin uploader`,
+        // NEW: tell function where to commit
+        path: targetPath
       });
-
-      const text = await res.text();
-      let payload;
-      try { payload = JSON.parse(text); } catch { payload = { ok: false, error: text }; }
-
-      if (!res.ok || !payload.ok) {
-        result.innerHTML = "<div style='color:#b91c1c'>Error:</div><pre>" + (payload.error || text) + "</pre>";
-        return;
-      }
 
       result.innerHTML = `
         <div style="color:#065f46">Success!</div>
@@ -97,7 +102,50 @@
           <li>Commit: <code>${payload.commit}</code></li>
           ${payload.html_url ? `<li><a href="${payload.html_url}" target="_blank">View file on GitHub</a></li>` : ""}
         </ul>
-        <p class="muted">Your GitHub Action will pick this up automatically.</p>
+        <p class="muted">The multi-feed Action will pick this up automatically.</p>
+      `;
+    } catch (err) {
+      result.innerHTML = "<div style='color:#b91c1c'>Error:</div><pre>" + err.message + "</pre>";
+    }
+  });
+
+  document.getElementById("saveFeedBtn").addEventListener("click", async () => {
+    result.textContent = "Saving feed…";
+    try {
+      const key = document.getElementById("key").value.trim();
+      const slug = document.getElementById("feedSlug").value.trim();
+      const url  = document.getElementById("feedUrl").value.trim();
+      if (!slug || !url) throw new Error("Both slug and feed URL are required to save.");
+
+      // Pull current feeds.json, merge/replace, push back
+      const getRes = await fetch(fnUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key, op: "readFile", path: feedsPath })
+      });
+      const txt = await getRes.text();
+      let current = [];
+      try { const p = JSON.parse(txt); if (p.ok && p.content) current = JSON.parse(p.content); } catch {}
+      if (!Array.isArray(current)) current = [];
+
+      const idx = current.findIndex(x => x.slug === slug);
+      if (idx >= 0) current[idx].url = url; else current.push({ slug, url });
+
+      const payload = await callUploadFunction({
+        key,
+        op: "writeFile",
+        path: feedsPath,
+        content: JSON.stringify(current, null, 2),
+        commitMessage: `chore: update feeds.json (${slug})`
+      });
+
+      result.innerHTML = `
+        <div style="color:#065f46">Saved!</div>
+        <ul>
+          <li>Updated: <code>${feedsPath}</code></li>
+          <li>Commit: <code>${payload.commit}</code></li>
+        </ul>
+        <p class="muted">Now you can upload overrides-<code>${slug}</code>.json or wait for the nightly build.</p>
       `;
     } catch (err) {
       result.innerHTML = "<div style='color:#b91c1c'>Error:</div><pre>" + err.message + "</pre>";
@@ -105,7 +153,7 @@
   });
 
   // keys we want to remember locally (safe ones only)
-  const FIELDS = ["adminKey", "repoOwner", "repoName", "targetBranch", "overridesPath", "commitMessage", "overridesJson"];
+  const FIELDS = ["adminKey", "repoOwner", "repoName", "targetBranch", "commitMessage", "overridesJson", "feedSlug", "feedUrl"];
   const LS_KEY = "gtfs_admin_uploader_v1";
 
   function loadSaved() {
@@ -125,6 +173,18 @@
       if (el) bag[k] = el.value;
     });
     localStorage.setItem(LS_KEY, JSON.stringify(bag));
+  }
+
+  async function callUploadFunction(body) {
+    const res = await fetch(fnUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let payload; try { payload = JSON.parse(text); } catch { payload = { ok: false, error: text }; }
+    if (!res.ok || !payload.ok) throw new Error(payload.error || text);
+    return payload;
   }
 
   window.addEventListener("DOMContentLoaded", () => {

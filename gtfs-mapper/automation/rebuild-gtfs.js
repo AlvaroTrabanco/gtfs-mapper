@@ -1,4 +1,4 @@
-// rebuild-flixbus.js
+// rebuild-gtfs.js
 /* eslint-disable no-console */
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -8,19 +8,21 @@ import Papa from "papaparse";
 
 /**
  * Environment
- * - FLIX_URL:         GTFS source zip (default Flix EU)
- * - OUT_DIR:          output directory (default: site)
- * - OUT_ZIP:          compiled zip filename (default: flixbus_eu_compiled.zip)
- * - OUT_REPORT:       report filename (default: report.json)
- * - OVERRIDES:        local overrides path (default: automation/overrides.json)
- * - OVERRIDES_URL:    remote overrides JSON URL (takes precedence)
+ * - FEED_URL:        GTFS source zip (required; falls back to Flix EU)
+ * - FEED_SLUG:       short id used for logs (optional)
+ * - OUT_DIR:         output directory (default: site)
+ * - OUT_ZIP:         compiled zip filename (default: <slug>_compiled.zip)
+ * - OUT_REPORT:      report filename (default: report.json)
+ * - OVERRIDES:       local overrides path (default: automation/overrides.json)
+ * - OVERRIDES_URL:   remote overrides JSON URL (takes precedence)
  */
-const SRC_URL       = process.env.FLIX_URL      || "http://gtfs.gis.flix.tech/gtfs_generic_eu.zip";
-const OUT_DIR       = process.env.OUT_DIR       || "site";
-const OUT_ZIP       = process.env.OUT_ZIP       || "flixbus_eu_compiled.zip";
-const OUT_REPORT    = process.env.OUT_REPORT    || "report.json";
-const OVERRIDES_PATH= process.env.OVERRIDES     || "automation/overrides.json";
-const OVERRIDES_URL = process.env.OVERRIDES_URL || "";
+const SLUG          = process.env.FEED_SLUG    || "feed";
+const SRC_URL       = process.env.FEED_URL     || "http://gtfs.gis.flix.tech/gtfs_generic_eu.zip";
+const OUT_DIR       = process.env.OUT_DIR      || "site";
+const OUT_ZIP       = process.env.OUT_ZIP      || `${SLUG}_compiled.zip`;
+const OUT_REPORT    = process.env.OUT_REPORT   || "report.json";
+const OVERRIDES_PATH= process.env.OVERRIDES    || "automation/overrides.json";
+const OVERRIDES_URL = process.env.OVERRIDES_URL|| "";
 
 /* ------------------------------ metrics ---------------------------------- */
 const METRICS = {
@@ -67,13 +69,12 @@ async function loadOverridesText() {
   try {
     console.log(`Overrides: reading ${OVERRIDES_PATH}`);
     return await fs.readFile(OVERRIDES_PATH, "utf8");
-  } catch (e) {
+  } catch {
     console.log("Overrides: none found (continuing with no rules)");
     return "{}";
   }
 }
 
-// tolerate several key delimiters: "trip::stop", "trip|stop", etc.
 const KEY_DELIMS = ["::","|","/","—","–","-"];
 function splitKey(k) {
   for (const d of KEY_DELIMS) {
@@ -86,7 +87,6 @@ function splitKey(k) {
   return m ? [m[1].trim(), m[2].trim()] : ["",""];
 }
 
-// Build "trip_id → [stop_ids in order]" for clamping pickupOnlyTo/dropoffOnlyFrom
 function indexStopTimes(stop_times) {
   const byTrip = new Map();
   for (const st of stop_times) {
@@ -106,7 +106,6 @@ function clampToTrip(seq, sid, drop, pick) {
   return { drop: d?.length ? d : undefined, pick: p?.length ? p : undefined };
 }
 
-// Accept {rules:{}} or {restrictions:{}} or raw map, or array form
 function importOverridesTolerant(raw, stop_times) {
   const byTripSeq = indexStopTimes(stop_times);
   const out = {};
@@ -146,16 +145,7 @@ function importOverridesTolerant(raw, stop_times) {
   return out;
 }
 
-/* ------------------------- OD compiler (App.tsx parity) ------------------- */
-/**
- * Mirrors your App.tsx compileTripsWithOD behavior:
- * - If a trip has no "custom" rules → emit single trip, set pickup/drop_off per stop for "pickup"/"dropoff".
- * - If it has any "custom" rules → emit three variants:
- *   A) segA: original_id__segA, from 0..lastCustom (custom stops: pickup=1,drop_off=0)
- *   B) segB: original_id__segB, from firstCustom..end (custom stops: pickup=0,drop_off=1)
- *   C) bridge: original_id__bridge, full trip; "custom" indices get pickup=1 & drop_off=1 (blocked), others 0/0;
- *              explicit "pickup" or "dropoff" at exact indices also respected.
- */
+/* ------------------------- OD compiler (unchanged logic) ------------------ */
 function compileTripsWithOD({ trips, stop_times }, restrictions) {
   const stopTimesByTrip = new Map();
   for (const st of stop_times) {
@@ -180,7 +170,6 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const hasCustom = Array.from(rulesByIdx.values()).some(r => r.mode === "custom");
 
     if (!hasCustom) {
-      // Single trip, apply pickup/dropoff toggles only
       outTrips.push({ ...t });
       for (let i = 0; i < rows.length; i++) {
         const st = rows[i];
@@ -204,12 +193,10 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       continue;
     }
 
-    // locate custom span
     const customIdxs = rows.map((_, i) => i).filter(i => rulesByIdx.get(i)?.mode === "custom");
     const firstC = Math.min(...customIdxs);
     const lastC  = Math.max(...customIdxs);
 
-    // segA: up to lastC
     const upId = `${t.trip_id}__segA`;
     METRICS.trips.createdSegments++;
     outTrips.push({ ...t, trip_id: upId });
@@ -220,18 +207,14 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       let pickup_type = 0, drop_off_type = 0;
       if (r?.mode === "pickup")       { drop_off_type = 1; METRICS.stopTimes.modified++; }
       else if (r?.mode === "dropoff") { pickup_type = 1;  METRICS.stopTimes.modified++; }
-      else if (r?.mode === "custom")  { pickup_type = 1;  drop_off_type = 0; METRICS.stopTimes.modified++; } // no board in middle
+      else if (r?.mode === "custom")  { pickup_type = 1;  drop_off_type = 0; METRICS.stopTimes.modified++; }
       const arr = toHHMMSS(st.arrival_time);
       const dep = toHHMMSS(st.departure_time);
-      outStopTimes.push({
-        trip_id: upId, stop_id: st.stop_id, stop_sequence: 0,
-        arrival_time: arr, departure_time: dep, pickup_type, drop_off_type
-      });
+      outStopTimes.push({ trip_id: upId, stop_id: st.stop_id, stop_sequence: 0, arrival_time: arr, departure_time: dep, pickup_type, drop_off_type });
       addedUp++; touchTrip(t.trip_id); touchStop(st.stop_id);
     }
     METRICS.stopTimes.added += addedUp;
 
-    // segB: from firstC
     const downId = `${t.trip_id}__segB`;
     METRICS.trips.createdSegments++;
     outTrips.push({ ...t, trip_id: downId });
@@ -242,18 +225,14 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       let pickup_type = 0, drop_off_type = 0;
       if (r?.mode === "pickup")       { drop_off_type = 1; METRICS.stopTimes.modified++; }
       else if (r?.mode === "dropoff") { pickup_type = 1;  METRICS.stopTimes.modified++; }
-      else if (r?.mode === "custom")  { pickup_type = 0;  drop_off_type = 1; METRICS.stopTimes.modified++; } // no alight in middle
+      else if (r?.mode === "custom")  { pickup_type = 0;  drop_off_type = 1; METRICS.stopTimes.modified++; }
       const arr = toHHMMSS(st.arrival_time);
       const dep = toHHMMSS(st.departure_time);
-      outStopTimes.push({
-        trip_id: downId, stop_id: st.stop_id, stop_sequence: 0,
-        arrival_time: arr, departure_time: dep, pickup_type, drop_off_type
-      });
+      outStopTimes.push({ trip_id: downId, stop_id: st.stop_id, stop_sequence: 0, arrival_time: arr, departure_time: dep, pickup_type, drop_off_type });
       addedDown++; touchTrip(t.trip_id); touchStop(st.stop_id);
     }
     METRICS.stopTimes.added += addedDown;
 
-    // bridge: full trip, block only custom indices (1/1) so Spain (or intra-segment) stops still appear
     const bridgeId = `${t.trip_id}__bridge`;
     METRICS.trips.createdSegments++;
     outTrips.push({ ...t, trip_id: bridgeId });
@@ -267,16 +246,12 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       else if (r?.mode === "dropoff") { pickup_type  = 1; METRICS.stopTimes.modified++; }
       const arr = toHHMMSS(st.arrival_time);
       const dep = toHHMMSS(st.departure_time);
-      outStopTimes.push({
-        trip_id: bridgeId, stop_id: st.stop_id, stop_sequence: 0,
-        arrival_time: arr, departure_time: dep, pickup_type, drop_off_type
-      });
+      outStopTimes.push({ trip_id: bridgeId, stop_id: st.stop_id, stop_sequence: 0, arrival_time: arr, departure_time: dep, pickup_type, drop_off_type });
       addedBridge++; touchTrip(t.trip_id); touchStop(st.stop_id);
     }
     METRICS.stopTimes.added += addedBridge;
   }
 
-  // resequence per trip
   const grouped = new Map();
   for (const st of outStopTimes) {
     if (!grouped.has(st.trip_id)) grouped.set(st.trip_id, []);
@@ -294,7 +269,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
 /* -------------------------------- main ------------------------------------ */
 (async () => {
   try {
-    console.log("Downloading GTFS:", SRC_URL);
+    console.log(`Downloading GTFS (${SLUG}):`, SRC_URL);
     const res = await fetch(SRC_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();
@@ -319,16 +294,13 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const stopTimes = tables.stop_times ? parseCsv(tables.stop_times) : [];
     const shapes    = tables.shapes     ? parseCsv(tables.shapes)     : [];
 
-    // normalize minimal fields we emit back (avoid undefineds)
     trips.forEach(t => { t.trip_headsign ??= ""; t.shape_id ??= ""; t.direction_id ??= ""; });
 
-    // overrides
     const overridesText = await loadOverridesText();
     let overridesRaw = {};
     try { overridesRaw = JSON.parse(overridesText || "{}"); } catch { overridesRaw = {}; }
     const restrictions = importOverridesTolerant(overridesRaw, stopTimes);
 
-    // metrics: overrides
     const entries = Object.entries(restrictions);
     METRICS.overrides.total = entries.length;
     for (const [, v] of entries) {
@@ -337,7 +309,6 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       METRICS.overrides.byMode[m]++;
     }
 
-    // pre-check: which override keys exist
     const present = new Set(stopTimes.map(st => `${st.trip_id}::${st.stop_id}`));
     for (const k of Object.keys(restrictions)) {
       if (!present.has(k)) {
@@ -346,15 +317,12 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       }
     }
 
-    // compile
     const { trips: outTrips, stop_times: outStopTimes } =
       compileTripsWithOD({ trips, stop_times: stopTimes }, restrictions);
 
-    // write out
     await fs.mkdir(OUT_DIR, { recursive: true });
     const outZip = new JSZip();
 
-    // passthrough base tables (minimal safe headers)
     if (agencies.length)
       outZip.file("agency.txt", csvify(
         agencies.map(a => ({
@@ -384,10 +352,8 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
           start_date: s.start_date, end_date: s.end_date
         })), ["service_id","monday","tuesday","wednesday","thursday","friday","saturday","sunday","start_date","end_date"]));
 
-    // passthrough shapes untouched (byte-for-byte)
     if (raw.shapes) outZip.file("shapes.txt", raw.shapes, { binary: true });
 
-    // compiled trips + stop_times
     outZip.file("trips.txt", csvify(outTrips.map(tr => ({
       route_id: tr.route_id, service_id: tr.service_id, trip_id: tr.trip_id,
       trip_headsign: tr.trip_headsign ?? "", shape_id: tr.shape_id ?? "", direction_id: tr.direction_id ?? ""
@@ -403,18 +369,14 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       drop_off_type: st.drop_off_type ?? 0
     })), ["trip_id","arrival_time","departure_time","stop_id","stop_sequence","pickup_type","drop_off_type"]));
 
-    const blob = await outZip.generateAsync({
-      type: "nodebuffer",
-      compression: "DEFLATE",
-      compressionOptions: { level: 9 }
-    });
+    const blob = await outZip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 9 } });
 
     const outPath = path.join(OUT_DIR, OUT_ZIP);
     await fs.writeFile(outPath, blob);
     console.log("Wrote:", outPath);
 
-    // report
     const report = {
+      feed: SLUG,
       overrides: METRICS.overrides,
       trips: { touchedCount: METRICS.trips.touched.size, createdSegments: METRICS.trips.createdSegments },
       stops: { touchedCount: METRICS.stops.touched.size },
@@ -431,9 +393,8 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     await fs.writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
     console.log("Report:", reportPath);
 
-    // pretty console
     const lines = [
-      "=== Flixbus GTFS Rebuild — Summary ===",
+      `=== GTFS Rebuild — ${SLUG} ===`,
       `Overrides: total=${report.overrides.total}  (pickup=${report.overrides.byMode.pickup || 0}, dropoff=${report.overrides.byMode.dropoff || 0}, custom=${report.overrides.byMode.custom || 0})`,
       `Trips: touched=${report.trips.touchedCount}, createdSegments=${report.trips.createdSegments}`,
       `Stops: touched=${report.stops.touchedCount}`,
