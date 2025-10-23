@@ -58,7 +58,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p site
-          # Expect: automation/feeds.txt (list of slugs, one per line)
+
+          # Resolve feeds list from txt or json (current dir or parent)
+          FEEDS="automation/feeds.txt"
+          if [ ! -f "$FEEDS" ]; then
+            if [ -f "../automation/feeds.txt" ]; then
+              FEEDS="../automation/feeds.txt"
+            elif [ -f "automation/feeds.json" ]; then
+              node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));(j.feeds||[]).forEach(s=>console.log(s))' > feeds.txt
+              FEEDS="feeds.txt"
+            elif [ -f "../automation/feeds.json" ]; then
+              node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync("../automation/feeds.json","utf8"));(j.feeds||[]).forEach(s=>console.log(s))' > feeds.txt
+              FEEDS="feeds.txt"
+            else
+              echo "ERROR: No feeds.txt or feeds.json found (looked in automation/ and ../automation/)"
+              echo "PWD=$(pwd)"; ls -la; echo "Parent:"; ls -la ..
+              exit 1
+            fi
+          fi
+
           while IFS= read -r SLUG; do
             [ -z "$SLUG" ] && continue
             mkdir -p "site/$SLUG"
@@ -76,7 +94,7 @@ jobs:
 
             printf "%s\n" "$INDEX_HTML" > "site/$SLUG/index.html"
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
-          done < automation/feeds.txt
+          done < "$FEEDS"
           
       - name: Root index
         shell: bash

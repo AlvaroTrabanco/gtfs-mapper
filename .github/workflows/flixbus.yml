@@ -40,9 +40,29 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Build compiled GTFS into site/
+        shell: bash
         run: |
+          set -euo pipefail
+          echo "PWD=$(pwd)"
+          ls -la
+          echo "Parent dir:"
+          ls -la ..
+
           mkdir -p site
-          OUT_DIR=site OUT_ZIP=flixbus_eu_compiled.zip node automation/rebuild-flixbus.js
+
+          # We are already in gtfs-mapper/ (defaults.working-directory)
+          # Script should be at automation/rebuild-flixbus.js
+          if [ -f automation/rebuild-flixbus.js ]; then
+            SCRIPT="automation/rebuild-flixbus.js"
+          elif [ -f ../automation/rebuild-flixbus.js ]; then
+            # Fallback if script is at repo root
+            SCRIPT="../automation/rebuild-flixbus.js"
+          else
+            echo "ERROR: rebuild-flixbus.js not found in automation/ or ../automation/"
+            exit 1
+          fi
+
+          OUT_DIR=site OUT_ZIP=flixbus_eu_compiled.zip node "$SCRIPT"
 
       - name: Create index.html
         run: |
