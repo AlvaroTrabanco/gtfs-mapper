@@ -46,7 +46,8 @@ jobs:
 
       - name: Create index.html
         run: |
-          cat > site/index.html << 'EOF'
+          set -euo pipefail
+          cat > site/index.html <<'EOF'
           <!doctype html><meta charset="utf-8">
           <title>Flixbus GTFS (compiled)</title>
           <h1>Flixbus GTFS (compiled)</h1>
