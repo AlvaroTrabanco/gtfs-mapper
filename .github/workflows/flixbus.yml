@@ -12,8 +12,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
@@ -35,27 +33,16 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # REQUIRED by Pages — sets up base path info, etc.
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
       - name: Build compiled GTFS into site/
         shell: bash
         run: |
           set -euo pipefail
-          echo "PWD=$(pwd)"
-          ls -la
-          echo "Parent dir:"
-          ls -la ..
-
           mkdir -p site
 
           # We are already in gtfs-mapper/ (defaults.working-directory)
-          # Script should be at automation/rebuild-flixbus.js
           if [ -f automation/rebuild-flixbus.js ]; then
             SCRIPT="automation/rebuild-flixbus.js"
           elif [ -f ../automation/rebuild-flixbus.js ]; then
-            # Fallback if script is at repo root
             SCRIPT="../automation/rebuild-flixbus.js"
           else
             echo "ERROR: rebuild-flixbus.js not found in automation/ or ../automation/"
@@ -65,8 +52,10 @@ jobs:
           OUT_DIR=site OUT_ZIP=flixbus_eu_compiled.zip node "$SCRIPT"
 
       - name: Create index.html
+        shell: bash
         run: |
           set -euo pipefail
+          # IMPORTANT: EOF must be at column 1, and HTML too
           cat > site/index.html <<'EOF'
           <!doctype html><meta charset="utf-8">
           <title>Flixbus GTFS (compiled)</title>
@@ -79,17 +68,10 @@ jobs:
           <script>document.getElementById('ts').textContent = new Date().toISOString();</script>
           EOF
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      # Optional: keep outputs as a workflow artifact for download
+      - name: Upload build artifact (site/)
+        uses: actions/upload-artifact@v4
         with:
+          name: flixbus-site
           path: gtfs-mapper/site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          if-no-files-found: error

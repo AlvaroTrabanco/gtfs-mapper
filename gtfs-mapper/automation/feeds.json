@@ -1,4 +1,5 @@
 [
+    { "slug": "flixbus", "url": "https://alvarotrabanco.github.io/gtfs-editor/flixbus_eu_compiled.zip" },
   {
     "slug": "ouibus",
     "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/fr-ile-de-france-blablacar-bus-gtfs-1314.zip?alt=media"

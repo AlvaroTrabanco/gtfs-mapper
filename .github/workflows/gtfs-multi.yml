@@ -93,7 +93,22 @@ jobs:
             printf "%s\n" "$INDEX_HTML" > "site/$SLUG/index.html"
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
           done < feeds.txt
-          
+         
+      - name: Generate registry.json (what’s built)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs=require("fs");
+            let slugs=[];
+            try {
+              slugs = fs.readFileSync("feeds.txt","utf8").split(/\r?\n/).filter(Boolean);
+            } catch {}
+            const registry = { generatedAt: new Date().toISOString(), slugsBuilt: slugs };
+            fs.mkdirSync("site",{recursive:true});
+            fs.writeFileSync("site/registry.json", JSON.stringify(registry,null,2));
+          '
+
       - name: Root index
         shell: bash
         run: |
@@ -129,6 +144,137 @@ jobs:
 
       - name: Expose feeds.json
         run: cp automation/feeds.json site/feeds.json
+      
+      - name: Add Admin dashboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site/admin
+          ADMIN_HTML='<!doctype html><meta charset="utf-8">
+          <title>GTFS Admin</title>
+          <style>
+            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}
+            h1{margin:0 0 8px} .muted{color:#666;margin:0 0 24px}
+            table{border-collapse:collapse;width:100%;margin:16px 0}
+            th,td{border:1px solid #ddd;padding:8px;text-align:left}
+            th{background:#f7f7f7}
+            .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px}
+            .ok{background:#e6ffec;color:#057a3b;border:1px solid #b8f5c7}
+            .miss{background:#fff7e6;color:#8a5d00;border:1px solid #ffe0a3}
+            .actions{display:flex;gap:8px}
+            textarea{width:100%;min-height:140px;font-family:ui-monospace,Menlo,Consolas,monospace}
+            .row{margin:20px 0}
+          </style>
+          <h1>GTFS Admin</h1>
+          <p class="muted">Shows feeds from <code>feeds.json</code> and which ones are currently built on the site. Creates an <code>overrides.json</code> patch for the selected feed.</p>
+
+          <div id="app">Loading…</div>
+
+          <script>
+          (async function(){
+            const app = document.getElementById("app");
+            const get = async (p, fallback)=> {
+              try {
+                const r = await fetch(p);
+                if (!r.ok) return fallback;
+                return await r.json();
+              } catch { return fallback; }
+            };
+            // Accept 3 formats for feeds: [{slug,url}], {feeds:[...]}, or ["slug",...]
+            const feedsRaw = await get("../feeds.json", []);
+            const feedsArr = Array.isArray(feedsRaw) ? feedsRaw : (feedsRaw.feeds || []);
+            const feeds = feedsArr.map(x => typeof x==="string" ? {slug:x, url:null} : x)
+                                  .filter(x => x && x.slug);
+
+            const reg = await get("../registry.json", { slugsBuilt: [] });
+            const built = new Set(reg.slugsBuilt || []);
+
+            const rows = feeds.map(f => {
+              const inSystem = built.has(f.slug);
+              return { slug:f.slug, url:f.url||"", inSystem };
+            });
+
+            const mk = (tag, attrs={}, html="") => {
+              const el = document.createElement(tag);
+              for (const k in attrs) el.setAttribute(k, attrs[k]);
+              el.innerHTML = html;
+              return el;
+            };
+
+            const table = mk("table");
+            table.innerHTML = "<thead><tr><th>Slug</th><th>URL</th><th>Status</th><th>Action</th></tr></thead>";
+            const tbody = mk("tbody");
+            table.appendChild(tbody);
+
+            for (const r of rows) {
+              const tr = mk("tr");
+              tr.appendChild(mk("td",{}, `<code>${r.slug}</code>`));
+              tr.appendChild(mk("td",{}, r.url ? `<a href="${r.url}" target="_blank" rel="noopener">${r.url}</a>` : "<em class='muted'>—</em>"));
+              tr.appendChild(mk("td",{}, r.inSystem
+                ? `<span class="pill ok">in system</span>`
+                : `<span class="pill miss">not built</span>`));
+              const tdAct = mk("td");
+              const btn = mk("button",{}, "Create overrides patch");
+              btn.onclick = () => openPatch(r.slug, r.url);
+              tdAct.appendChild(btn);
+              tr.appendChild(tdAct);
+              tbody.appendChild(tr);
+            }
+
+            const panel = mk("div", {class:"row"});
+            panel.innerHTML = `
+              <h2>Create overrides.json patch</h2>
+              <p class="muted">Pick a slug from the table above, then edit the JSON below and save it. Commit this file as <code>gtfs-mapper/automation/overrides.json</code>.</p>
+              <div class="actions">
+                <button id="download">Download overrides.json</button>
+                <button id="copy">Copy to clipboard</button>
+              </div>
+              <div class="row"><textarea id="txt"></textarea></div>
+            `;
+            app.innerHTML = "";
+            app.appendChild(table);
+            app.appendChild(panel);
+
+            const txt = panel.querySelector("#txt");
+            const btnDl = panel.querySelector("#download");
+            const btnCp = panel.querySelector("#copy");
+
+            // Load current overrides if published at ../overrides.json
+            const existing = await get("../overrides.json", null);
+            if (existing) txt.value = JSON.stringify(existing, null, 2);
+
+            function openPatch(slug, url){
+              // Minimal starting structure; customize fields as needed
+              const base = existing || { overrides: {} };
+              base.overrides[slug] = Object.assign({}, base.overrides[slug] || {}, {
+                sourceUrl: url || (base.overrides[slug]?.sourceUrl || ""),
+                // put other override keys here, e.g. calendarFixes, routeRenames, etc.
+              });
+              txt.value = JSON.stringify(base, null, 2);
+              txt.focus();
+            }
+
+            btnDl.onclick = () => {
+              const blob = new Blob([txt.value || "{}"], {type:"application/json"});
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = "overrides.json";
+              a.click();
+              URL.revokeObjectURL(a.href);
+            };
+
+            btnCp.onclick = async () => {
+              try { await navigator.clipboard.writeText(txt.value || ""); btnCp.textContent = "Copied!"; setTimeout(()=>btnCp.textContent="Copy to clipboard", 1500); }
+              catch { alert("Copy failed; select the text and copy manually."); }
+            };
+          })();
+          </script>'
+          printf "%s\n" "$ADMIN_HTML" > site/admin/index.html
+
+      - name: Publish overrides (if present)
+        shell: bash
+        run: |
+          [ -f automation/overrides.json ] && cp automation/overrides.json site/overrides.json || true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
