@@ -20,6 +20,7 @@ jobs:
     defaults:
       run:
         working-directory: gtfs-mapper
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,20 +35,23 @@ jobs:
       - name: Install
         run: npm ci --no-audit --no-fund
 
-      # REQUIRED by Pages
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      # OPTIONAL: if your app builds to dist/ (Vite or similar), expose stable names
+      # OPTIONAL: expose stable JS/CSS if dist/ exists
       - name: Make app assets available to site
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p site
-          JS="$(find dist -type f -name '*.js' | head -n1 || true)"
-          CSS="$(find dist -type f -name '*.css' | head -n1 || true)"
-          if [ -n "${JS}" ]; then cp "${JS}" site/app.js; fi
-          if [ -n "${CSS}" ]; then cp "${CSS}" site/style.css; fi
+          if [ -d dist ]; then
+            JS="$(find dist -type f -name '*.js' | head -n1 || true)"
+            CSS="$(find dist -type f -name '*.css' | head -n1 || true)"
+            [ -n "${JS:-}" ] && cp "$JS" site/app.js || true
+            [ -n "${CSS:-}" ] && cp "$CSS" site/style.css || true
+          else
+            echo "No dist/ directory; skipping app.js/style.css"
+          fi
 
       - name: Build site per feed
         shell: bash
@@ -72,36 +76,37 @@ jobs:
             <script type="module" src="../app.js"></script>
             EOF
 
-                        sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
-                      done < automation/feeds.txt
+            sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
+          done | sed -n '1!p' < automation/feeds.txt
 
-                  - name: Root index
-                    shell: bash
-                    run: |
-                      mkdir -p site
-                      cat > site/index.html <<'EOF'
-            <!doctype html><meta charset="utf-8">
-            <title>GTFS Mapper Feeds</title>
-            <h1>GTFS Mapper Feeds</h1>
-            <p>Last updated: <span id="ts"></span></p>
-            <ul id="list"></ul>
-            <script>
-              document.getElementById('ts').textContent = new Date().toISOString();
-              (async () => {
-                const res = await fetch('./feeds.json').catch(() => null);
-                const data = (res && res.ok) ? await res.json() : { "feeds": [] };
-                const ul = document.getElementById('list');
-                for (const slug of data.feeds) {
-                  const li = document.createElement('li');
-                  const a = document.createElement('a');
-                  a.href = './' + slug + '/';
-                  a.textContent = slug;
-                  li.appendChild(a);
-                  ul.appendChild(li);
-                }
-              })();
-            </script>
-            EOF
+      - name: Root index
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          cat > site/index.html <<'EOF'
+          <!doctype html><meta charset="utf-8">
+          <title>GTFS Mapper Feeds</title>
+          <h1>GTFS Mapper Feeds</h1>
+          <p>Last updated: <span id="ts"></span></p>
+          <ul id="list"></ul>
+          <script>
+            document.getElementById('ts').textContent = new Date().toISOString();
+            (async () => {
+              const res = await fetch('./feeds.json').catch(() => null);
+              const data = (res && res.ok) ? await res.json() : { "feeds": [] };
+              const ul = document.getElementById('list');
+              for (const slug of data.feeds) {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = './' + slug + '/';
+                a.textContent = slug;
+                li.appendChild(a);
+                ul.appendChild(li);
+              }
+            })();
+          </script>
+          EOF
 
       - name: Expose feeds.json
         run: cp automation/feeds.json site/feeds.json
