@@ -59,23 +59,21 @@ jobs:
           set -euo pipefail
           mkdir -p site
 
-          # Resolve feeds list from txt or json (current dir or parent)
-          FEEDS="automation/feeds.txt"
-          if [ ! -f "$FEEDS" ]; then
-            if [ -f "../automation/feeds.txt" ]; then
-              FEEDS="../automation/feeds.txt"
-            elif [ -f "automation/feeds.json" ]; then
-              node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));(j.feeds||[]).forEach(s=>console.log(s))' > feeds.txt
-              FEEDS="feeds.txt"
-            elif [ -f "../automation/feeds.json" ]; then
-              node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync("../automation/feeds.json","utf8"));(j.feeds||[]).forEach(s=>console.log(s))' > feeds.txt
-              FEEDS="feeds.txt"
-            else
-              echo "ERROR: No feeds.txt or feeds.json found (looked in automation/ and ../automation/)"
-              echo "PWD=$(pwd)"; ls -la; echo "Parent:"; ls -la ..
-              exit 1
-            fi
+          # Generate a slug list from automation/feeds.json (supports 3 shapes)
+          if [ ! -f automation/feeds.json ]; then
+            echo "ERROR: gtfs-mapper/automation/feeds.json not found"
+            exit 1
           fi
+          node -e '
+            const fs=require("fs");
+            const raw=fs.readFileSync("automation/feeds.json","utf8");
+            const j=JSON.parse(raw);
+            const arr=Array.isArray(j) ? j : (j.feeds ?? []);
+            for (const it of arr) {
+              const slug = (typeof it==="string") ? it : it.slug;
+              if (slug && typeof slug==="string") console.log(slug);
+            }
+          ' > feeds.txt
 
           while IFS= read -r SLUG; do
             [ -z "$SLUG" ] && continue
@@ -94,7 +92,7 @@ jobs:
 
             printf "%s\n" "$INDEX_HTML" > "site/$SLUG/index.html"
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
-          done < "$FEEDS"
+          done < feeds.txt
           
       - name: Root index
         shell: bash
@@ -108,12 +106,16 @@ jobs:
           <p>Last updated: <span id="ts"></span></p>
           <ul id="list"></ul>
           <script>
-            document.getElementById('ts').textContent = new Date().toISOString();
+            document.getElementById("ts").textContent = new Date().toISOString();
             (async () => {
+              // Accept 3 formats: [{slug,url}], {feeds:[...]} or ["slug", ...]
               const res = await fetch('./feeds.json').catch(() => null);
-              const data = (res && res.ok) ? await res.json() : { "feeds": [] };
+              const data = res && res.ok ? await res.json() : [];
+              const arr = Array.isArray(data) ? data : (data.feeds || []);
+              const slugs = arr.map(x => typeof x === 'string' ? x : x.slug).filter(Boolean);
+
               const ul = document.getElementById('list');
-              for (const slug of data.feeds) {
+              for (const slug of slugs) {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
                 a.href = './' + slug + '/';
