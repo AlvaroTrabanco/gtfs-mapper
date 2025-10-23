@@ -53,7 +53,7 @@ jobs:
             echo "No dist/ directory; skipping app.js/style.css"
           fi
 
-      - name: Build site per feed (robust download + diagnostics)
+      - name: Build site per feed (strict download + diagnostics)
         shell: bash
         run: |
           set -euo pipefail
@@ -73,27 +73,21 @@ jobs:
             }
           ' > feeds.tsv
 
-          # Record slugs for registry/admin
+          # Save slugs for registry/admin
           cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
-          # Helper: download with full diagnostics
           fetch_with_diag() {
             local url="$1" out="$2" dir
             dir="$(dirname "$out")"
             mkdir -p "$dir"
             local hdr="$dir/headers.txt"
             local raw="$dir/download.raw"
-            rm -f "$hdr" "$raw" "$out" "$out.part"
+            rm -f "$hdr" "$raw" "$out" "$out.part" "$dir/error.html"
 
-            # HEAD (best-effort)
             echo "---- HEAD $url"
             curl -sS -I -L -A "gtfs-mapper-ci" "$url" || true
 
-            # GET (capture headers + body)
             echo "---- GET  $url"
-            # Notes:
-            # -H Accept encourages a binary response when servers negotiate
-            # -L follows redirects; -S shows errors; -s quiet body; -D writes headers
             if ! curl -L -sS \
                 -H "Accept: application/zip, application/octet-stream,*/*" \
                 -A "gtfs-mapper-ci" \
@@ -108,10 +102,9 @@ jobs:
               return 1
             fi
 
-            # Check for ZIP magic bytes (PK\x03\x04)
+            # ZIP magic (PK\x03\x04) + deep validation
             if head -c 4 "$raw" | hexdump -Cv | grep -q "50 4b 03 04"; then
               mv "$raw" "$out"
-              # deep validation
               if ! unzip -tqq "$out" >/dev/null 2>&1; then
                 echo "Downloaded file is not a valid ZIP (unzip test failed)."
                 return 2
@@ -132,7 +125,6 @@ jobs:
             if [ -z "${URL:-}" ]; then
               echo "ERROR: Feed ${SLUG} has no URL in feeds.json"
               any_fail=1
-              # still render a page explaining the issue
               URL_DISPLAY="(missing URL)"
               LOCAL_NOTE="<em>No source URL provided</em>"
             else
@@ -145,7 +137,6 @@ jobs:
                 du -h "site/${SLUG}/gtfs.zip" || true
               else
                 any_fail=1
-                # If error.html exists, link it on the page for easy debugging
                 if [ -f "site/${SLUG}/error.html" ]; then
                   LOCAL_NOTE='<em>Local GTFS not available — see <a href="error.html">error detail</a></em>'
                 else
@@ -155,7 +146,6 @@ jobs:
               echo "::endgroup::"
             fi
 
-            # Per-feed page (no heredoc)
             INDEX_HTML='<!doctype html><meta charset="utf-8">
             <title>{{TITLE}}</title>
             <h1>{{TITLE}}</h1>
@@ -167,11 +157,12 @@ jobs:
             <p>Last updated: <span id="ts"></span></p>
             <script>document.getElementById("ts").textContent = new Date().toISOString();</script>'
             printf "%s\n" "$INDEX_HTML" > "site/${SLUG}/index.html"
-            # Put title
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
           done < feeds.tsv
 
-          # Fail hard if any feed failed — prevents silent bad deploys
+          echo "Built tree under site/:"
+          find site -maxdepth 2 -type f -printf "%p (%k KB)\n" | sort
+
           if [ "$any_fail" -ne 0 ]; then
             echo "One or more feeds failed to download/validate. See per-feed pages (headers.txt, error.html) and logs."
             exit 1
