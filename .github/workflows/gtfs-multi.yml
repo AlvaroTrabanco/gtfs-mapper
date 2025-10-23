@@ -53,16 +53,15 @@ jobs:
             echo "No dist/ directory; skipping app.js/style.css"
           fi
 
-      - name: Build site per feed
+      - name: Build site per feed (download from feeds.json only)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p site
 
-          # Build a TSV of slug <tab> url from automation/feeds.json
+          # Build TSV: slug \t url (supports [{slug,url}], {feeds:[...]}, ["slug"])
           if [ ! -f automation/feeds.json ]; then
-            echo "ERROR: gtfs-mapper/automation/feeds.json not found"
-            exit 1
+            echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
           node -e '
             const fs=require("fs");
@@ -74,40 +73,83 @@ jobs:
             }
           ' > feeds.tsv
 
-          # Save the built slugs (for registry.json)
+          # Record slugs for registry.json, admin, etc.
           cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
-          # For each feed: create folder, try to download to gtfs.zip, and write index.html
+          fetch_zip() {
+            local url="$1" out="$2"
+            local tmp="${out}.part"
+            rm -f "$tmp"
+
+            echo "HEAD ${url}"
+            # show headers for debugging (but don’t fail if HEAD blocked)
+            curl -I -L --max-time 60 -A "gtfs-mapper-ci" "$url" || true
+
+            echo "GET  ${url}"
+            # Robust download:
+            # -L follow redirects
+            # -f fail on HTTP errors
+            # retries (incl. conn refused), resume, long timeout, stall detection
+            curl -fL \
+                 --retry 5 --retry-delay 5 --retry-connrefused \
+                 -C - \
+                 --connect-timeout 30 \
+                 --max-time 900 \
+                 --speed-limit 2048 --speed-time 60 \
+                 -A "gtfs-mapper-ci" \
+                 -o "$tmp" \
+                 "$url"
+
+            mv "$tmp" "$out"
+
+            # Validate it’s a real ZIP (unzip -tqq)
+            if ! unzip -tqq "$out" >/dev/null 2>&1; then
+              echo "ERROR: Downloaded file is not a valid ZIP: $out"
+              return 2
+            fi
+          }
+
+          any_fail=0
           while IFS=$'\t' read -r SLUG URL; do
-            [ -z "${SLUG}" ] && continue
+            [ -z "${SLUG:-}" ] && continue
             mkdir -p "site/${SLUG}"
 
-            # Try to fetch zip if URL present
-            LOCAL_ZIP=""
-            if [ -n "${URL:-}" ]; then
-              echo "Fetching ${URL} -> site/${SLUG}/gtfs.zip (best-effort)"
-              if curl -L --fail --max-time 180 --connect-timeout 20 -o "site/${SLUG}/gtfs.zip.part" "${URL}"; then
-                mv "site/${SLUG}/gtfs.zip.part" "site/${SLUG}/gtfs.zip"
-                LOCAL_ZIP="gtfs.zip"
-              else
-                echo "Warning: download failed for ${SLUG}; will link to remote URL"
-                rm -f "site/${SLUG}/gtfs.zip.part" || true
-              fi
+            if [ -z "${URL:-}" ]; then
+              echo "ERROR: Feed ${SLUG} has no URL in feeds.json"
+              any_fail=1
+              continue
             fi
 
-            # Write a tiny per-feed page with links
+            echo "::group::Downloading ${SLUG}"
+            echo "URL: ${URL}"
+            if fetch_zip "${URL}" "site/${SLUG}/gtfs.zip"; then
+              echo "OK  -> site/${SLUG}/gtfs.zip"
+              du -h "site/${SLUG}/gtfs.zip" || true
+            else
+              echo "ERROR: download failed for ${SLUG}"
+              rm -f "site/${SLUG}/gtfs.zip" "site/${SLUG}/gtfs.zip.part" || true
+              any_fail=1
+            fi
+            echo "::endgroup::"
+
             INDEX_HTML='<!doctype html><meta charset="utf-8">
             <title>{{TITLE}}</title>
             <h1>{{TITLE}}</h1>
             <ul>
-              '$( [ -n "$LOCAL_ZIP" ] && echo '<li><a href="gtfs.zip">Download GTFS (local)</a></li>' )'
-              '$( [ -n "${URL:-}" ] && echo "<li><a href=\"${URL}\">Original source URL</a></li>" || echo "<li><em>No source URL provided</em></li>" )'
+              <li><a href="gtfs.zip">Download GTFS (local)</a></li>
+              <li><a href="'${URL//\"/&quot;}'">Original source URL</a></li>
             </ul>
             <p>Last updated: <span id="ts"></span></p>
             <script>document.getElementById("ts").textContent = new Date().toISOString();</script>'
-                        printf "%s\n" "$INDEX_HTML" > "site/${SLUG}/index.html"
-                        sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
-                      done < feeds.tsv
+            printf "%s\n" "$INDEX_HTML" > "site/${SLUG}/index.html"
+            sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
+          done < feeds.tsv
+
+          # Fail the job if any feed failed to download/validate
+          if [ "$any_fail" -ne 0 ]; then
+            echo "One or more feeds failed to download or validate. Failing the build."
+            exit 1
+          fi
          
       - name: Generate registry.json (what’s built)
         shell: bash
