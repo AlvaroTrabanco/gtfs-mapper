@@ -59,40 +59,55 @@ jobs:
           set -euo pipefail
           mkdir -p site
 
-          # Generate a slug list from automation/feeds.json (supports 3 shapes)
+          # Build a TSV of slug <tab> url from automation/feeds.json
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"
             exit 1
           fi
           node -e '
             const fs=require("fs");
-            const raw=fs.readFileSync("automation/feeds.json","utf8");
-            const j=JSON.parse(raw);
-            const arr=Array.isArray(j) ? j : (j.feeds ?? []);
+            const j=JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));
+            const arr = Array.isArray(j) ? j : (j.feeds||[]);
             for (const it of arr) {
-              const slug = (typeof it==="string") ? it : it.slug;
-              if (slug && typeof slug==="string") console.log(slug);
+              if (typeof it==="string") console.log(it+"\t");
+              else if (it && it.slug) console.log(it.slug+"\t"+(it.url||""));
             }
-          ' > feeds.txt
+          ' > feeds.tsv
 
-          while IFS= read -r SLUG; do
-            [ -z "$SLUG" ] && continue
-            mkdir -p "site/$SLUG"
+          # Save the built slugs (for registry.json)
+          cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
+          # For each feed: create folder, try to download to gtfs.zip, and write index.html
+          while IFS=$'\t' read -r SLUG URL; do
+            [ -z "${SLUG}" ] && continue
+            mkdir -p "site/${SLUG}"
+
+            # Try to fetch zip if URL present
+            LOCAL_ZIP=""
+            if [ -n "${URL:-}" ]; then
+              echo "Fetching ${URL} -> site/${SLUG}/gtfs.zip (best-effort)"
+              if curl -L --fail --max-time 180 --connect-timeout 20 -o "site/${SLUG}/gtfs.zip.part" "${URL}"; then
+                mv "site/${SLUG}/gtfs.zip.part" "site/${SLUG}/gtfs.zip"
+                LOCAL_ZIP="gtfs.zip"
+              else
+                echo "Warning: download failed for ${SLUG}; will link to remote URL"
+                rm -f "site/${SLUG}/gtfs.zip.part" || true
+              fi
+            fi
+
+            # Write a tiny per-feed page with links
             INDEX_HTML='<!doctype html><meta charset="utf-8">
             <title>{{TITLE}}</title>
-            <link rel="stylesheet" href="../style.css">
             <h1>{{TITLE}}</h1>
+            <ul>
+              '$( [ -n "$LOCAL_ZIP" ] && echo '<li><a href="gtfs.zip">Download GTFS (local)</a></li>' )'
+              '$( [ -n "${URL:-}" ] && echo "<li><a href=\"${URL}\">Original source URL</a></li>" || echo "<li><em>No source URL provided</em></li>" )'
+            </ul>
             <p>Last updated: <span id="ts"></span></p>
-            <div id="app"></div>
-            <script>
-              document.getElementById("ts").textContent = new Date().toISOString();
-            </script>
-            <script type="module" src="../app.js"></script>'
-
-            printf "%s\n" "$INDEX_HTML" > "site/$SLUG/index.html"
-            sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/$SLUG/index.html"
-          done < feeds.txt
+            <script>document.getElementById("ts").textContent = new Date().toISOString();</script>'
+                        printf "%s\n" "$INDEX_HTML" > "site/${SLUG}/index.html"
+                        sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
+                      done < feeds.tsv
          
       - name: Generate registry.json (what’s built)
         shell: bash
@@ -123,12 +138,10 @@ jobs:
           <script>
             document.getElementById("ts").textContent = new Date().toISOString();
             (async () => {
-              // Accept 3 formats: [{slug,url}], {feeds:[...]} or ["slug", ...]
               const res = await fetch('./feeds.json').catch(() => null);
               const data = res && res.ok ? await res.json() : [];
               const arr = Array.isArray(data) ? data : (data.feeds || []);
               const slugs = arr.map(x => typeof x === 'string' ? x : x.slug).filter(Boolean);
-
               const ul = document.getElementById('list');
               for (const slug of slugs) {
                 const li = document.createElement('li');
