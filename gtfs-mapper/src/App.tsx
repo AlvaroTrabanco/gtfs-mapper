@@ -2478,6 +2478,54 @@ const addStopTimeRow = () => {
     return m;
   }, [stopTimes]);
 
+
+
+  // Fallback: build a polyline for a route from one representative trip's stop order
+  const buildFallbackCoordsForRoute = useCallback(
+    (routeId: string): [number, number][] | null => {
+      // Prefer ALL stop_times from the imported feed; fall back to the UI subset
+      const rowsSource: StopTime[] =
+        (stopTimesAllRef.current && stopTimesAllRef.current.length)
+          ? stopTimesAllRef.current
+          : stopTimes;
+
+      // Reuse your existing grouper
+      const rowsByTrip = groupStopTimesByTrip(rowsSource);
+
+      // Trips for this route
+      const routeTrips = trips.filter(t => t.route_id === routeId);
+      if (!routeTrips.length) return null;
+
+      // Pick the trip with the most stop_times (gives a decent path)
+      let bestCoords: [number, number][] | null = null;
+
+      for (const t of routeTrips) {
+        const rows = (rowsByTrip.get(t.trip_id) ?? [])
+          .slice()
+          .sort((a, b) => num(a.stop_sequence) - num(b.stop_sequence));
+
+        if (rows.length < 2) continue;
+
+        const coords: [number, number][] = [];
+        for (const r of rows) {
+          const s = stopsById.get(r.stop_id);
+          if (s && Number.isFinite(s.stop_lat) && Number.isFinite(s.stop_lon)) {
+            coords.push([s.stop_lat, s.stop_lon]);
+          }
+        }
+
+        if (coords.length >= 2) {
+          if (!bestCoords || coords.length > bestCoords.length) {
+            bestCoords = coords;
+          }
+        }
+      }
+
+      return bestCoords;
+    },
+    [trips, stopsById, stopTimes]
+  );
+
   
   
 
@@ -2588,11 +2636,17 @@ const addStopTimeRow = () => {
       }
 
       // If there’s still no geometry, do not render this route.
+          // If there’s still no geometry, try a fallback built from stop order
       if (!coords || coords.length < 2) {
-        if (DEBUG && selectedRouteId === r.route_id) {
-          log("routePolylines: NO coords for selected route", r.route_id);
+        const fallback = buildFallbackCoordsForRoute(r.route_id);
+        if (fallback && fallback.length >= 2) {
+          coords = fallback;
+        } else {
+          if (DEBUG && selectedRouteId === r.route_id) {
+            log("routePolylines: NO coords (no shapes, no fallback) for route", r.route_id);
+          }
+          continue; // still nothing — skip
         }
-        continue;
       }
 
       // Quick bounds check: keep the route only if any segment lies in (or near) the current view.
