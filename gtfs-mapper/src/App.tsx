@@ -1,6 +1,6 @@
 import { unstable_batchedUpdates } from "react-dom";
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { MapContainer, TileLayer, Polyline, CircleMarker, useMapEvents, useMap, Pane, Marker } from "react-leaflet";
+import { useEffect, useMemo, useState, useCallback, useRef, startTransition } from "react";
+import { MapContainer, TileLayer, Polyline, CircleMarker, useMapEvents, useMap, Pane, Marker, GeoJSON } from "react-leaflet";
 import L from "leaflet";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -116,8 +116,18 @@ function parseCsvFast<T = any>(text: string): Promise<T[]> {
 
 
 // --- DEBUG logger ---
-const DEBUG = true;
-const log = (...args: any[]) => { if (DEBUG) console.log("[GTFS]", ...args); };
+// --- DEBUG logger ---
+const DEBUG =
+  (typeof window !== "undefined" && (window as any).GTFS_DEBUG === true) ||
+  localStorage.getItem("GTFS_DEBUG") === "1";
+
+export const enableGtfsDebug = () => { localStorage.setItem("GTFS_DEBUG", "1"); };
+export const disableGtfsDebug = () => { localStorage.removeItem("GTFS_DEBUG"); };
+
+const log = (...args: any[]) => {
+  if (!DEBUG) return;
+  (console.debug || console.log)("[GTFS]", ...args);
+};
 
 function normalizeRule(raw: any): ODRestriction {
   const mode: StopRuleMode =
@@ -405,6 +415,31 @@ function decodePolyline(polyline: string, precision = 1e-5): [number, number][] 
 }
 
 
+// --- geometry helpers for route caching ---
+type LatLng = [number, number];
+type RouteGeom = { coords: LatLng[]; bbox: L.LatLngBounds };
+
+const bboxOf = (coords: LatLng[]): L.LatLngBounds => {
+  let minLat =  90, minLng = 180, maxLat = -90, maxLng = -180;
+  for (const [lat, lng] of coords) {
+    if (lat < minLat) minLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lat > maxLat) maxLat = lat;
+    if (lng > maxLng) maxLng = lng;
+  }
+  return L.latLngBounds(L.latLng(minLat, minLng), L.latLng(maxLat, maxLng));
+};
+
+const decimate = (coords: LatLng[], maxPts = MAX_ROUTE_POINTS): LatLng[] => {
+  const n = coords.length;
+  if (n <= maxPts) return coords;
+  const step = Math.ceil(n / maxPts);
+  const out: LatLng[] = [];
+  for (let i = 0; i < n; i += step) out.push(coords[i]);
+  if (out[out.length - 1] !== coords[n - 1]) out.push(coords[n - 1]);
+  return out;
+};
+
 /** ---------- Map bits ---------- */
 
 
@@ -573,7 +608,6 @@ function PaginatedEditableTable<T extends Record<string, any>>({
   const [pageSize, setPageSize] = useState<5|10|20|50|100>(initialPageSize);
   const [query, setQuery] = useState("");
 
-  
 
   useEffect(() => { setQuery(""); setPage(1); }, [clearSignal]);
 
@@ -821,33 +855,66 @@ function ServiceChip({
 
 function MapClickMenuTrigger({
   onShow,
+  onDeselect,
+  hasRouteSelection = false,
 }: {
   onShow: (info: { x: number; y: number; lat: number; lng: number }) => void;
+  onDeselect: () => void;                     // ← called on background click when a route is selected
+  hasRouteSelection?: boolean;                // ← true if any route is currently selected
 }) {
   const map = useMap();
+
+  // detect “real click” vs “dragged”
+  const downPtRef = useRef<L.Point | null>(null);
+  const movedRef  = useRef(false);
+  const DRAG_TOL = 6; // px
+
+  const isInteractiveTarget = (t: HTMLElement | null) =>
+    !!t &&
+    (t.closest(".leaflet-marker-pane") ||
+     t.closest(".leaflet-interactive") ||
+     t.closest(".leaflet-popup") ||
+     t.closest(".leaflet-tooltip"));
+
   useMapEvents({
+    mousedown(e) {
+      downPtRef.current = map.latLngToContainerPoint(e.latlng);
+      movedRef.current = false;
+    },
+    mousemove(e) {
+      if (!downPtRef.current) return;
+      const p = map.latLngToContainerPoint(e.latlng);
+      if (p.distanceTo(downPtRef.current) > DRAG_TOL) movedRef.current = true;
+    },
+    mouseup() {
+      // leave refs set; we’ll read them in click
+    },
+
     click(e) {
-      // Only show the small menu when we are zoomed in enough to act on it
-      if (map.getZoom() < MIN_ADD_ZOOM) return;
+      // If map was dragged, ignore this click
+      if (movedRef.current) return;
 
       const oe = (e as any).originalEvent as MouseEvent | undefined;
-      if (oe) {
-        if ((oe as any)._stopped || oe.defaultPrevented) return;
-        const t = oe.target as HTMLElement | null;
-        if (
-          t &&
-          (t.closest(".leaflet-marker-pane") ||
-           t.closest(".leaflet-interactive") ||
-           t.closest(".leaflet-popup") ||
-           t.closest(".leaflet-tooltip"))
-        ) {
-          return;
-        }
+      const target = (oe?.target as HTMLElement) ?? null;
+
+      // Ignore clicks on interactive features (routes, markers, tooltips/popups)
+      if (isInteractiveTarget(target)) return;
+
+      // Background click:
+      if (hasRouteSelection) {
+        // First click on background clears the selection
+        onDeselect();
+        return;
       }
-      const p = map.latLngToContainerPoint(e.latlng);
-      onShow({ x: p.x, y: p.y, lat: e.latlng.lat, lng: e.latlng.lng });
+
+      // No active selection → show the add/misc menu (only if zoomed in enough)
+      if (map.getZoom() >= MIN_ADD_ZOOM) {
+        const p = map.latLngToContainerPoint(e.latlng);
+        onShow({ x: p.x, y: p.y, lat: e.latlng.lat, lng: e.latlng.lng });
+      }
     },
   });
+
   return null;
 }
 
@@ -1016,6 +1083,99 @@ export default function App() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [stopTimes, setStopTimes] = useState<StopTime[]>([]);
   const [shapePts, setShapePts] = useState<ShapePt[]>([]);
+  const stopTimesAllRef = useRef<StopTime[] | null>(null);
+  const stopsById = useMemo(() => {
+    const m = new Map<string, Stop>();
+    for (const s of stops) m.set(s.stop_id, s);
+    return m;
+  }, [stops]);
+  const shapesById = useMemo(() => {
+    const m = new Map<string, ShapePt[]>();
+    for (const p of shapePts) {
+      const arr = m.get(p.shape_id) ?? [];
+      arr.push(p);
+      m.set(p.shape_id, arr);
+    }
+    for (const [k, arr] of m) m.set(k, arr.slice().sort((a,b)=>a.seq-b.seq));
+    return m;
+  }, [shapePts]);
+
+  // ---- Route geometry cache (per-route, lazy) ----
+  const routeGeomCacheRef = useRef<Map<string, RouteGeom>>(new Map());
+
+  const coordsForRoute = useCallback((routeId: string): LatLng[] | null => {
+    // 1) try shapes first (longest shape across the route's trips)
+    const rTrips = trips.filter(t => t.route_id === routeId);
+    if (!rTrips.length) return null; // nothing to build
+    let best: LatLng[] | null = null;
+    for (const t of rTrips) {
+      if (!t.shape_id) continue;
+      const pts = shapesById.get(t.shape_id);
+      if (!pts || pts.length < 2) continue;
+      const c = pts.map(p => [p.lat, p.lon] as LatLng);
+      if (!best || c.length > best.length) best = c;
+    }
+    if (best && best.length >= 2) return best;
+
+    // 2) fallback from stop_times — prefer the FULL feed if available
+    const rowsSource = (stopTimesAllRef.current?.length ? stopTimesAllRef.current! : stopTimes);
+    const rowsByTrip = groupStopTimesByTrip(rowsSource);
+    const routeTrips = trips.filter(t => t.route_id === routeId);
+
+    let fallback: LatLng[] | null = null;
+    for (const t of routeTrips) {
+      const rows = (rowsByTrip.get(t.trip_id) ?? [])
+        .slice()
+        .sort((a,b)=>num(a.stop_sequence)-num(b.stop_sequence));
+      if (rows.length < 2) continue;
+      const c: LatLng[] = [];
+      for (const r of rows) {
+        const s = stopsById.get(r.stop_id);
+        if (s && Number.isFinite(s.stop_lat) && Number.isFinite(s.stop_lon)) c.push([s.stop_lat, s.stop_lon]);
+      }
+      if (c.length >= 2 && (!fallback || c.length > fallback.length)) fallback = c;
+    }
+    return fallback;
+  }, [trips, shapesById, stopsById, stopTimes]);
+
+  // --- Soft throttling for huge feeds ---
+  let _geomBudget = 400; // number of routes allowed to compute per frame
+
+  const getRouteGeom = useCallback((routeId: string): RouteGeom | null => {
+    const cache = routeGeomCacheRef.current;
+    const cached = cache.get(routeId);
+    if (cached) return cached;
+
+    // Soft throttle: if we’ve computed a lot this tick, defer
+    if (_geomBudget <= 0) return null;
+    _geomBudget--;
+
+    const coords = coordsForRoute(routeId);
+    if (!coords || coords.length < 2) return null;
+
+    const slim = decimate(coords, MAX_ROUTE_POINTS);
+    const geom: RouteGeom = { coords: slim, bbox: bboxOf(slim) };
+    cache.set(routeId, geom);
+    return geom;
+  }, [coordsForRoute]);
+
+  // Reset budget every tick (0ms interval → each JS task)
+  useEffect(() => {
+    const id = setInterval(() => { _geomBudget = 400; }, 0);
+    return () => clearInterval(id);
+  }, []);
+
+  // targeted invalidations
+  useEffect(() => {
+    // shapes changed → most likely geometry changed; clear cache
+    routeGeomCacheRef.current.clear();
+  }, [shapePts]);
+
+  useEffect(() => {
+    // stops or trips changed materially → clear cache
+    routeGeomCacheRef.current.clear();
+  }, [stops, trips]);
+
 
   /** UI */
   const [showRoutes, setShowRoutes] = useState<boolean>(true);
@@ -1061,30 +1221,35 @@ export default function App() {
     return null;
   }
   // --- Lazy load stop_times only for the selected route ---
-  useEffect(() => {
-    // don’t do anything during bulk compute suppression
+    useEffect(() => {
+      // don’useEffect(() => {
     if (suppressCompute.current) return;
 
     const rid = resolveActiveRouteId();
-    if (!rid) {
-      // No route selected → keep the stop_times list small/empty
+    const all = stopTimesAllRef.current;
+
+    if (!rid || !all?.length) {
       if (stopTimes.length) setStopTimes([]);
       return;
     }
 
-    const all = stopTimesAllRef.current;
-    if (!all || !all.length) return;
-
-    // Trips for this route
     const tids = new Set(trips.filter(t => t.route_id === rid).map(t => t.trip_id));
     if (!tids.size) {
       if (stopTimes.length) setStopTimes([]);
       return;
     }
 
-    // Only rows for those trips
-    const filtered = all.filter(st => tids.has(st.trip_id));
-    setStopTimes(filtered);
+    const run = () => {
+      const filtered = all.filter(st => tids.has(st.trip_id));
+      startTransition(() => setStopTimes(filtered));
+    };
+
+    if ("requestIdleCallback" in window) {
+      // @ts-ignore
+      (window as any).requestIdleCallback(run, { timeout: 120 });
+    } else {
+      setTimeout(run, 0);
+    }
   }, [selectedRouteId, selectedRouteIds, trips]);
 
 
@@ -1219,9 +1384,47 @@ export default function App() {
   const [mapZoom, setMapZoom] = useState(6);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
 
+
+
+  const visibleRouteIds = useMemo(() => {
+    if (!mapBounds || mapZoom < MIN_ROUTE_ZOOM || !showRoutes) return [];
+
+    // If there are LOTS of routes and nothing is selected/scoped,
+    // don't compute geometry at all — avoid freezing on huge feeds.
+    const hasSelection =
+      !!selectedRouteId || (selectedRouteIds && selectedRouteIds.size > 0);
+
+    if (routes.length > 1200 && !hasSelection) {
+      return []; // draw nothing until user selects a route
+    }
+
+    // fast path: if scoping and we have a selection, just draw the selection
+    if (isScopedView) {
+      const selected = new Set<string>(selectedRouteIds);
+      if (selectedRouteId) selected.add(selectedRouteId);
+      if (selected.size) return Array.from(selected);
+    }
+
+    const padded = mapBounds.pad(0.10);
+    const out: string[] = [];
+    for (const r of routes) {
+      const g = getRouteGeom(r.route_id);
+      if (g && g.bbox.intersects(padded)) out.push(r.route_id);
+    }
+    return out;
+  }, [
+    mapBounds, mapZoom, showRoutes,
+    isScopedView, selectedRouteId, selectedRouteIds,
+    routes, getRouteGeom
+  ]);
+
   // Stable callback so MapStateTracker's effect doesn't re-run forever
   // Stable callback so MapStateTracker's effect doesn't re-run forever
   const [mapCenter, setMapCenter] = useState<L.LatLng | null>(null);
+
+  // keep a live Leaflet map ref + one-shot guard for first fit
+  const mapRef = useRef<L.Map | null>(null);
+  const didInitialFitRef = useRef(false);
 
   const onMapState = useCallback((z: number, b: L.LatLngBounds, c: L.LatLng) => {
     setMapZoom(prev => (prev === z ? prev : z));
@@ -1238,10 +1441,6 @@ export default function App() {
       buildShapeAutoForSelectedRoute();
     }, 350) as unknown as number;
   }, [selectedRouteId]);
-
-  // All stop_times live here after import; we only render the subset for the selected route.
-  const stopTimesAllRef = useRef<StopTime[] | null>(null);
-
 
 
   // --- Scoped keep sets (when a route is selected, hide unrelated data) ---
@@ -1928,6 +2127,31 @@ const addStopTimeRow = () => {
     setHydrated(true);
   }, []);
 
+
+  // Auto-fit to the current stops exactly once after data loads
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (didInitialFitRef.current) return;
+    if (!stops || stops.length === 0) return;
+
+    const pts = stops
+      .map(s => L.latLng(s.stop_lat, s.stop_lon))
+      .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+
+    if (pts.length === 0) return;
+
+    // prevent refitting on every small change; only first time after import/load
+    didInitialFitRef.current = true;
+
+    if (pts.length === 1) {
+      map.setView(pts[0], 12, { animate: false });
+    } else {
+      const bounds = L.latLngBounds(pts);
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 12, animate: false });
+    }
+  }, [stops]);
+
   useEffect(() => {
     if (!hydrated || suppressPersist.current) return;
 
@@ -2045,6 +2269,8 @@ const addStopTimeRow = () => {
         const obj = JSON.parse(await file.text());
 
         suppressPersist.current = true;
+
+        didInitialFitRef.current = false; // allow auto-fit after loading a project
 
         suppressCompute.current = true; // ⬇️ NEW: pause all recomputations
 
@@ -2240,6 +2466,7 @@ const addStopTimeRow = () => {
         }));
         // During huge imports, don't render thousands of markers
         setShowStops(false);
+        didInitialFitRef.current = false; // allow auto-fit after this import
 
         suppressPersist.current = true;
         suppressCompute.current = true;
@@ -2397,12 +2624,7 @@ const addStopTimeRow = () => {
       }
     });
 
-  const stopsById = useMemo(() => {
-    const m = new Map<string, Stop>();
-    for (const s of stops) m.set(s.stop_id, s);
-    return m;
-  }, [stops]);
-
+  
   const stopNameToId = useMemo(() => {
     const m = new Map<string, string>();
     for (const s of stops) m.set(s.stop_name, s.stop_id);
@@ -2456,16 +2678,7 @@ const addStopTimeRow = () => {
     return { stop_id, stop_name };
   };
 
-  const shapesById = useMemo(() => {
-    const m = new Map<string, ShapePt[]>();
-    for (const p of shapePts) {
-      const arr = m.get(p.shape_id) ?? [];
-      arr.push(p);
-      m.set(p.shape_id, arr);
-    }
-    for (const [k, arr] of m) m.set(k, arr.slice().sort((a,b)=>a.seq-b.seq));
-    return m;
-  }, [shapePts]);
+  
 
   const stopTimesByTrip = useMemo(() => {
     const m = new Map<string, StopTime[]>();
@@ -2477,6 +2690,54 @@ const addStopTimeRow = () => {
     for (const [k, arr] of m) m.set(k, arr.slice().sort((a,b)=>num(a.stop_sequence)-num(b.stop_sequence)));
     return m;
   }, [stopTimes]);
+
+
+
+  // Fallback: build a polyline for a route from one representative trip's stop order
+  const buildFallbackCoordsForRoute = useCallback(
+    (routeId: string): [number, number][] | null => {
+      // Prefer ALL stop_times from the imported feed; fall back to the UI subset
+      const rowsSource: StopTime[] =
+        (stopTimesAllRef.current && stopTimesAllRef.current.length)
+          ? stopTimesAllRef.current
+          : stopTimes;
+
+      // Reuse your existing grouper
+      const rowsByTrip = groupStopTimesByTrip(rowsSource);
+
+      // Trips for this route
+      const routeTrips = trips.filter(t => t.route_id === routeId);
+      if (!routeTrips.length) return null;
+
+      // Pick the trip with the most stop_times (gives a decent path)
+      let bestCoords: [number, number][] | null = null;
+
+      for (const t of routeTrips) {
+        const rows = (rowsByTrip.get(t.trip_id) ?? [])
+          .slice()
+          .sort((a, b) => num(a.stop_sequence) - num(b.stop_sequence));
+
+        if (rows.length < 2) continue;
+
+        const coords: [number, number][] = [];
+        for (const r of rows) {
+          const s = stopsById.get(r.stop_id);
+          if (s && Number.isFinite(s.stop_lat) && Number.isFinite(s.stop_lon)) {
+            coords.push([s.stop_lat, s.stop_lon]);
+          }
+        }
+
+        if (coords.length >= 2) {
+          if (!bestCoords || coords.length > bestCoords.length) {
+            bestCoords = coords;
+          }
+        }
+      }
+
+      return bestCoords;
+    },
+    [trips, stopsById, stopTimes]
+  );
 
   
   
@@ -2550,84 +2811,16 @@ const addStopTimeRow = () => {
     return m;
   }, [trips]);
 
-  const routePolylines = useMemo(() => {
-    // ⬇️ Skip when we’re importing or computing disabled
-    if (suppressCompute.current) return new Map<string, [number, number][]>();
 
-    if (isBusy || !mapBounds || mapZoom < MIN_ROUTE_ZOOM)
-      return new Map<string, [number, number][]>();
+  
 
-    const out = new Map<string, [number, number][]>();
-    const b = mapBounds;
-    let routesDrawn = 0;
-
-    // Helper: keep at most MAX_ROUTE_POINTS by picking every k-th point
-    const decimate = (coords: [number, number][]) => {
-      const n = coords.length;
-      if (n <= MAX_ROUTE_POINTS) return coords;
-      const step = Math.ceil(n / MAX_ROUTE_POINTS);
-      const slim: [number, number][] = [];
-      for (let i = 0; i < n; i += step) slim.push(coords[i]);
-      // ensure last point is included
-      if (slim[slim.length - 1] !== coords[n - 1]) slim.push(coords[n - 1]);
-      return slim;
-    };
-
-    for (const r of routes) {
-      const rTrips = tripsByRoute.get(r.route_id) ?? [];
-
-      // Pick the longest available SHAPE
-      let coords: [number, number][] | null = null;
-      for (const t of rTrips) {
-        const sid = t.shape_id;
-        if (!sid) continue;
-        const pts = shapesById.get(sid);
-        if (!pts || pts.length < 2) continue;
-        const c = pts.map(p => [p.lat, p.lon] as [number, number]);
-        if (!coords || c.length > coords.length) coords = c;
-      }
-
-      // If there’s still no geometry, do not render this route.
-      if (!coords || coords.length < 2) {
-        if (DEBUG && selectedRouteId === r.route_id) {
-          log("routePolylines: NO coords for selected route", r.route_id);
-        }
-        continue;
-      }
-
-      // Quick bounds check: keep the route only if any segment lies in (or near) the current view.
-      // We’ll do a cheap test by checking whether at least one vertex is inside bounds.
-      const anyInside = (() => {
-        for (let i=0;i<coords.length;i++) {
-          const [lat, lon] = coords[i];
-          if (b.contains(L.latLng(lat, lon))) return true;
-          if (i > 0) {
-            const [lat0, lon0] = coords[i-1];
-            const segBounds = L.latLngBounds(L.latLng(lat0, lon0), L.latLng(lat, lon));
-            if (segBounds.intersects(b)) return true;
-          }
-        }
-        return false;
-      })();
-      if (!anyInside) continue;
-
-      out.set(r.route_id, decimate(coords));
-      routesDrawn++;
-    }
-    if (DEBUG) log("routePolylines recomputed", {
-      routesTotal: routes.length,
-      routesDrawn,
-      shapesKnown: shapesById.size
-    });
-    return out;
-    // NOTE we now depend on mapBounds/mapZoom to cull by view
-  }, [isBusy, mapBounds, mapZoom, routes, tripsByRoute, shapesById, stopTimesByTrip, stopsById]);
+  
 
   /** ---------- Selection & ordering ---------- */
   // Visual: selected route first
   const routesVisibleIdx = useMemo(() => {
     // IMPORTANT: base must match what you pass as rows to the table
-    const base = (isScopedView && scopedKeep) ? routesScoped : routes;
+    const base = routesScoped;
 
     const idxs = base.map((_, i) => i);
     if (!selectedRouteId) return idxs;
@@ -3592,6 +3785,14 @@ async function buildShapeAutoForSelectedRoute(forceCreate = false) {
   }
 }
 
+function CaptureMap({ onReady }: { onReady: (m: L.Map) => void }) {
+  const m = useMap();
+  useEffect(() => {
+    onReady(m);
+  }, [m, onReady]);
+  return null;
+}
+
 /** Clear shape points for the selected route’s shape_id */
 /** Clear shape points for any selected routes (multiselect-safe) */
 function clearShapeForSelectedRoute() {
@@ -3650,6 +3851,56 @@ function clearShapeForSelectedRoute() {
 
   setBanner({ kind: "success", text: "Shape cleared." });
   setTimeout(() => setBanner(null), 1200);
+}
+
+
+function StopsLayer({
+  stops,
+  selectedStopId,
+  onPick
+}: {
+  stops: Stop[];
+  selectedStopId: string | null;
+  onPick: (sid: string) => void;
+}) {
+  // Build once per stops/selection change; Leaflet handles pan/zoom transforms
+  const data = useMemo(() => ({
+    type: "FeatureCollection",
+    features: stops.map(s => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [s.stop_lon, s.stop_lat] },
+      properties: { stop_id: s.stop_id, selected: selectedStopId === s.stop_id }
+    }))
+  }), [stops, selectedStopId]);
+
+  const pointToLayer = useCallback((feature: any, latlng: L.LatLng) => {
+    const selected = !!feature?.properties?.selected;
+    return L.circleMarker(latlng, {
+      radius: selected ? 10 : 6,
+      weight: selected ? 3 : 1.5,
+      color: selected ? "#df007c" : "#222",
+      fillColor: selected ? "#fff" : "#fafafa",
+      fillOpacity: 1,
+      interactive: true,
+      pane: "stopsTop",
+    });
+  }, []);
+
+  const onEachFeature = useCallback((feature: any, layer: L.Layer) => {
+    layer.on("click", () => {
+      const sid = feature?.properties?.stop_id as string | undefined;
+      if (sid) onPick(sid);
+    });
+  }, [onPick]);
+
+  // Note: react-leaflet types want specific function signatures; cast to any to simplify TS
+  return (
+    <GeoJSON
+      data={data as any}
+      pointToLayer={pointToLayer as any}
+      onEachFeature={onEachFeature as any}
+    />
+  );
 }
 
 /** Auto-rebuild whenever the selected route’s route_type changes */
@@ -3964,9 +4215,9 @@ useEffect(() => {
                 fontSize: 12,
                 fontWeight: 600,
               }}
-              title={`Zoom in to at least ${MIN_ADD_ZOOM} to add stops by clicking on the map`}
+              title={`Zoom in to at least ${MIN_ADD_ZOOM} to add stops by clicking on the map and see the route paths`}
             >
-              Zoom in to at least {MIN_ADD_ZOOM} to add stops by clicking on the map.
+              Zoom in to at least {MIN_ADD_ZOOM} to add stops by clicking on the map and see the route paths.
             </span>
           )}
           <div className={`map-shell ${selectedRouteId ? "bw" : ""}`} style={{ height: 400, width: "100%", borderRadius: 12, overflow: "hidden", position: "relative" }}>
@@ -3984,29 +4235,46 @@ useEffect(() => {
                 </div>
               </div>
             )}
+            {routes.length > 1200 && !selectedRouteId && selectedRouteIds.size === 0 && (
+              <div style={{
+                marginBottom: 6, padding: "6px 10px", borderRadius: 8,
+                background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa",
+                fontSize: 12
+              }}>
+                Large feed detected. Select a route on the map or in <b>routes.txt</b> to render it.
+              </div>
+            )}
             <MapContainer
               center={[40.4168, -3.7038]}
               zoom={6}
               preferCanvas={true}
+              renderer={L.canvas()}
               style={{ height: "100%", width: "100%" }}
             >
+              <CaptureMap onReady={(m) => { mapRef.current = m; }} />
               {!selectedStopId && !selectedRouteId && (
                 <AddStopOnMapClick
                   onAdd={(lat, lng) => addStopAt(lat, lng)}
                   onTooFar={() =>
                     setBanner({
                       kind: "info",
-                      text: `Zoom in to at least ${MIN_ADD_ZOOM} to add stops.`,
+                      text: `Zoom in to at least ${MIN_ADD_ZOOM} to add stops and see the route paths.`,
                     })
                   }
                 />
               )}
 
-              {(selectedStopId || selectedRouteId) && (
-                <MapClickMenuTrigger
-                  onShow={({ x, y, lat, lng }) => setMapClickMenu({ x, y, lat, lng })}
-                />
-              )}
+            {(selectedStopId || selectedRouteId) && (
+              <MapClickMenuTrigger
+                onShow={({ x, y, lat, lng }) => setMapClickMenu({ x, y, lat, lng })}
+                onDeselect={() => {
+                  setSelectedRouteId(null);
+                  setSelectedRouteIds(new Set());
+                  setMapClickMenu(null);
+                }}
+                hasRouteSelection={!!selectedRouteId || selectedRouteIds.size > 0}
+              />
+            )}
 
               {/* Track map zoom/bounds */}
               <MapStateTracker onChange={onMapState} />
@@ -4018,94 +4286,113 @@ useEffect(() => {
               />
 
               {/* Rendering panes for layers */}
-              <Pane name="routeHalo" style={{ zIndex: 390 }} />
-              <Pane name="routeLines" style={{ zIndex: 400 }} />
-              <Pane name="stopsTop" style={{ zIndex: 650 }} />
+              <Pane name="routeHalo"  style={{ zIndex: 680 }} />
+              <Pane name="routeLines" style={{ zIndex: 690 }} />
+              <Pane name="routeHits"  style={{ zIndex: 700 }} />
+              <Pane name="stopsTop"   style={{ zIndex: 650 }} />
 
              
 
 
-              {/* Normal stops — not draggable while in Add mode */}
-              {visibleStops.map((s) => {
-                const isSelected = selectedStopId === s.stop_id;
-                return (
-                  <CircleMarker
-                    key={s.uid}
-                    center={[s.stop_lat, s.stop_lon]}
-                    pane="stopsTop"
-                    radius={isSelected ? 10 : 6} // larger when selected
-                    color={isSelected ? "#df007c" : "#222"}
-                    weight={isSelected ? 3 : 1.5}
-                    fillColor={isSelected ? "#fff" : "#fafafa"}
-                    fillOpacity={1}
-                    eventHandlers={{
-                      click: (e) => {
-                        if (isBusy) return;
-                        if ((e as any).originalEvent) L.DomEvent.stop((e as any).originalEvent);
-                        setMapClickMenu(null);
-                        setSelectedStopId(s.stop_id);
-                      },
-                    }}
-                  />
-                );
-              })}
+              {/* Stops as a single SVG GeoJSON layer (clickable, no re-render on pan/zoom) */}
+              {showStops && mapZoom >= MIN_STOP_ZOOM && (
+                <StopsLayer
+                  stops={
+                    // keep the same scoping behavior you had before
+                    scopedKeep
+                      ? stops.filter(s =>
+                          scopedKeep.keepStopIds.has(s.stop_id) ||
+                          s.stop_id === selectedStopId ||
+                          s.stop_id === selectedStopIdFromRow
+                        )
+                      : stops
+                  }
+                  selectedStopId={selectedStopId}
+                  onPick={(sid) => {
+                    if (isBusy) return;
+                    setMapClickMenu(null);
+                    setSelectedStopId(sid);
+                  }}
+                />
+              )}
 
 
-              {/* Route polylines */}
+              {/* Route polylines (from cache) */}
               {!tooManyRoutes &&
-                Array.from(routePolylines.entries())
-                  .filter(([route_id]) => {
+                visibleRouteIds
+                  .filter((route_id) => {
                     if (!isScopedView) return true;
                     if (selectedRouteIds.size) return selectedRouteIds.has(route_id);
                     return selectedRouteId ? route_id === selectedRouteId : true;
                   })
-                  .map(([route_id, coords]) => {
-                  const isSel =
-                    selectedRouteId === route_id || selectedRouteIds.has(route_id);
-                  const hasSel = !!selectedRouteId || selectedRouteIds.size > 0;
-                  const color = hasSel
-                    ? isSel
-                      ? routeColor(route_id)
-                      : DIM_ROUTE_COLOR
-                    : routeColor(route_id);
-                  const weight = isSel ? 6 : 3;
-                  const opacity = hasSel ? (isSel ? 0.95 : 0.6) : 0.95;
+                  .map((route_id) => {
+                    const geom = getRouteGeom(route_id);
+                    if (!geom) return null;
+                    const coords = geom.coords;
 
-                  return (
-                    <div key={route_id}>
-                      {isSel && (
+                    const isSel = selectedRouteId === route_id || selectedRouteIds.has(route_id);
+                    const hasSel = !!selectedRouteId || selectedRouteIds.size > 0;
+                    const color = hasSel ? (isSel ? routeColor(route_id) : DIM_ROUTE_COLOR) : routeColor(route_id);
+                    const weight = isSel ? 6 : 3;
+                    const opacity = hasSel ? (isSel ? 0.95 : 0.6) : 0.95;
+
+                    const onRouteClick = (e: any) => {
+                      if (e?.originalEvent) L.DomEvent.stop(e.originalEvent);
+                      if (isBusy) return;
+                      startTransition(() => {
+                        setSelectedRouteId(route_id);
+                        setSelectedRouteIds(new Set([route_id]));
+                      });
+                    };
+
+
+                    return (
+                      <div key={route_id}>
+                        {/* invisible wide hit line */}
                         <Polyline
                           positions={coords as any}
-                          pane="routeHalo"
-                          className="route-halo-pulse"
+                          pane="routeHits"
+                          smoothFactor={2}
                           pathOptions={{
-                            color: "#ffffff",
-                            weight: 10,
-                            opacity: 0.9,
-                            lineCap: "round",
+                            color: "rgba(0,0,0,0.01)",   // or color: "#000", opacity: 0.01
+                            opacity: 0.01,               // > 0 so Canvas will register hits
+                            weight: Math.max(16, weight + 12),
+                            interactive: true
                           }}
-                          eventHandlers={{
-                            click: () => {
-                              if (isBusy) return;
-                              setSelectedRouteId(route_id);
-                            },
-                          }}
+                          bubblingMouseEvents={false}
+                          eventHandlers={{ click: onRouteClick }}
                         />
-                      )}
-                      <Polyline
-                        positions={coords as any}
-                        pane="routeLines"
-                        pathOptions={{ color, weight, opacity }}
-                        eventHandlers={{
-                          click: () => {
-                            if (isBusy) return;
-                            setSelectedRouteId(route_id);
-                          },
-                        }}
-                      />
-                    </div>
-                  );
-                })}
+
+                        {/* halo when selected */}
+                        {isSel && (
+                          <Polyline
+                            positions={coords as any}
+                            pane="routeHalo"
+                            smoothFactor={2}
+                            className="route-halo-pulse"
+                            pathOptions={{
+                              color: "#ffffff",
+                              weight: 10,
+                              opacity: 0.9,
+                              lineCap: "round",
+                              interactive: false
+                            }}
+                          />
+                        )}
+
+                        {/* visible line */}
+                        <Polyline
+                          positions={coords as any}
+                          pane="routeLines"
+                          smoothFactor={2}
+                          pathOptions={{ color, weight, opacity, interactive: true }}
+                          bubblingMouseEvents={false}
+                          eventHandlers={{ click: onRouteClick }}
+                        />
+                      </div>
+                    );
+                  })
+              }
                 
             </MapContainer>
 
@@ -4134,7 +4421,7 @@ useEffect(() => {
                   className="btn"
                   onClick={() => {
                     if (mapZoom < MIN_ADD_ZOOM) {
-                      setBanner({ kind: "info", text: `Zoom in to at least ${MIN_ADD_ZOOM} to add stops.` });
+                      setBanner({ kind: "info", text: `Zoom in to at least ${MIN_ADD_ZOOM} to add stops and see the route paths.` });
                       setTimeout(() => setBanner(null), 1500);
                       return;
                     }
