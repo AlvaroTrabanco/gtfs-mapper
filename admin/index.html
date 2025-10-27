@@ -21,21 +21,34 @@
   <form id="uploader">
     <label>Admin key</label>
     <input type="password" id="key" placeholder="Your ADMIN_KEY" required />
-    <label>Feed slug</label>
-    <input type="text" id="feedSlug" placeholder="e.g. flixbus" required />
 
-    <label>Feed URL</label>
-    <input type="text" id="feedUrl" placeholder="https://example.com/feed.zip (saved in feeds.json)" />
-    <p class="muted">If provided, this will be added/updated in <code>gtfs-mapper/automation/feeds.json</code>.</p>
-    <label>overrides-<slug>.json</label>
-    <input type="file" id="file" accept="application/json" required />
+    <label>Feed</label>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <select id="feedSelect" style="flex:1 1 260px;"></select>
+      <button type="button" id="refreshFeeds">Reload</button>
+    </div>
+    <p class="muted">Pick an existing feed or create a new one below.</p>
+
+    <div class="card" style="margin:12px 0;">
+      <strong>Add / Update feed</strong>
+      <label>Feed slug</label>
+      <input type="text" id="feedSlug" placeholder="e.g. flixbus" />
+      <label>Feed URL</label>
+      <input type="text" id="feedUrl" placeholder="https://example.com/feed.zip" />
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+        <button type="button" id="saveFeedBtn">Save/Update feed</button>
+        <button type="button" id="deleteFeedBtn" style="color:#b91c1c;border-color:#fca5a5">Delete selected feed</button>
+      </div>
+    </div>
+
+    <label>Overrides JSON (for the selected feed)</label>
+    <input type="file" id="file" accept="application/json" />
 
     <label>Commit message <span class="muted">(optional)</span></label>
-    <input type="text" id="msg" placeholder="chore: update overrides.json via admin uploader" />
+    <input type="text" id="msg" placeholder="chore: update overrides-<slug>.json via admin" />
 
     <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-      <button type="submit" class="primary">Upload & Commit overrides-<slug>.json</button>
-      <button type="button" id="saveFeedBtn">Save/Update feed (feeds.json)</button>
+      <button type="submit" class="primary">Upload overrides for selected feed</button>
       <button type="button" id="previewBtn">Preview JSON</button>
       <button id="clearSaved" type="button">Clear saved form</button>
     </div>
@@ -46,16 +59,89 @@
 
 <script>
   const fnUrl = "/.netlify/functions/upload-overrides";
-
-  const feedsPath = "gtfs-mapper/automation/feeds.json"; // file to update
+  const feedsPath = "gtfs-mapper/automation/feeds.json";
 
   const form = document.getElementById("uploader");
   const result = document.getElementById("result");
   const previewBtn = document.getElementById("previewBtn");
   const fileInput = document.getElementById("file");
+  const feedSelect = document.getElementById("feedSelect");
+  const refreshFeedsBtn = document.getElementById("refreshFeeds");
+  const deleteFeedBtn = document.getElementById("deleteFeedBtn");
 
+  const FIELDS = ["adminKey","commitMessage","feedSlug","feedUrl"];
+  const LS_KEY = "gtfs_admin_uploader_v2";
   let lastJsonText = null;
+  let feedsCache = [];  // [{slug,url}]
 
+  // ---- Helpers ----
+  function saveNow() {
+    const bag = {};
+    FIELDS.forEach(k => {
+      const el = document.getElementById(k);
+      if (el) bag[k] = el.value;
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify(bag));
+  }
+  function loadSaved() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+      if (saved.adminKey) document.getElementById("key").value = saved.adminKey;
+      if (saved.commitMessage) document.getElementById("msg").value = saved.commitMessage;
+      if (saved.feedSlug) document.getElementById("feedSlug").value = saved.feedSlug;
+      if (saved.feedUrl) document.getElementById("feedUrl").value = saved.feedUrl;
+    } catch {}
+  }
+  function uiMessage(html, color) {
+    result.innerHTML = `<div style="color:${color||'#111'}">${html}</div>`;
+  }
+  async function callFn(body) {
+    const res = await fetch(fnUrl, {
+      method: "POST",
+      headers: { "content-type":"application/json" },
+      body: JSON.stringify(body)
+    });
+    const text = await res.text();
+    let payload; try { payload = JSON.parse(text); } catch { payload = { ok:false, error:text }; }
+    if (!res.ok || !payload.ok) throw new Error(payload.error || text);
+    return payload;
+  }
+
+  // ---- Feeds list ----
+  async function loadFeeds() {
+    try {
+      const key = document.getElementById("key").value.trim();
+      const r = await callFn({ key, op:"readFile", path: feedsPath });
+      const arr = JSON.parse(r.content || "[]");
+      const feeds = Array.isArray(arr) ? arr : (arr.feeds || []);
+      feedsCache = feeds.map(x => typeof x === "string" ? { slug:x, url:"" } : x).filter(x=>x && x.slug);
+      renderFeedSelect();
+    } catch (e) {
+      feedsCache = [];
+      feedSelect.innerHTML = `<option value="">(no feeds.json or failed to load)</option>`;
+    }
+  }
+
+  function renderFeedSelect() {
+    const cur = feedSelect.value;
+    feedSelect.innerHTML = `<option value="">— Select a feed —</option>` +
+      feedsCache.map(f => `<option value="${f.slug}">${f.slug}${f.url ? " — " + f.url : ""}</option>`).join("");
+    if (cur) feedSelect.value = cur;
+    onFeedChoiceChange();
+  }
+
+  function onFeedChoiceChange() {
+    const slug = feedSelect.value;
+    const found = feedsCache.find(f => f.slug === slug);
+    document.getElementById("feedSlug").value = slug || "";
+    document.getElementById("feedUrl").value  = found?.url || "";
+    saveNow();
+  }
+
+  feedSelect.addEventListener("change", onFeedChoiceChange);
+  refreshFeedsBtn.addEventListener("click", loadFeeds);
+
+  // ---- Preview ----
   previewBtn.addEventListener("click", async () => {
     const file = fileInput.files?.[0];
     if (!file) { alert("Pick a file first."); return; }
@@ -69,48 +155,69 @@
     }
   });
 
+  // ---- Validate JSON matches selected slug ----
+  function normalizeOverridesForSlug(rawObj, slug) {
+    // Accept {overrides:{slug:{...}}} OR {slug:{...}}
+    const payload = rawObj?.overrides && typeof rawObj.overrides === "object"
+      ? rawObj.overrides
+      : rawObj;
+
+    if (!payload || typeof payload !== "object") {
+      throw new Error("JSON must be an object with either {overrides:{<slug>:{...}}} or {<slug>:{...}}.");
+    }
+    const keys = Object.keys(payload);
+    if (keys.length === 0) throw new Error("No overrides found.");
+    if (keys.length > 1) throw new Error(`Found multiple slugs in JSON (${keys.join(", ")}). Keep only the selected feed (${slug}).`);
+
+    const only = keys[0];
+    if (only !== slug) throw new Error(`Slug mismatch. Selected "${slug}", but JSON contains "${only}".`);
+    const data = payload[only] || {};
+    return { [slug]: data };
+  }
+
+  // ---- Upload handler ----
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    result.textContent = "Uploading…";
-
     try {
-      const key = document.getElementById("key").value.trim();
-      const slug = document.getElementById("feedSlug").value.trim();
-      if (!slug) throw new Error("Feed slug is required.");
+      const key  = document.getElementById("key").value.trim();
+      const slug = (feedSelect.value || document.getElementById("feedSlug").value || "").trim();
+      if (!slug) throw new Error("Pick or enter a feed slug first.");
 
       const msg = document.getElementById("msg").value.trim();
       const file = fileInput.files?.[0];
-      if (!file) throw new Error("Pick a file.");
+      if (!file) throw new Error("Pick an overrides JSON file.");
 
-      const overridesJson = lastJsonText || await file.text();
-      // Ensure file path = overrides-<slug>.json (avoid double -slug)
+      const txt = lastJsonText || await file.text();
+      let parsed; try { parsed = JSON.parse(txt); } catch { throw new Error("Invalid JSON file."); }
+      const normalized = normalizeOverridesForSlug(parsed, slug);
+      const overridesJson = JSON.stringify({ overrides: normalized }, null, 2);
       const targetPath = `gtfs-mapper/automation/overrides-${slug}.json`;
 
-      const payload = await callUploadFunction({
+      const payload = await callFn({
         key,
-        overridesJson,
-        commitMessage: msg || `chore: update overrides-${slug}.json via admin uploader`,
-        // NEW: tell function where to commit
-        path: targetPath
+        op: "writeFile",
+        path: targetPath,
+        content: overridesJson,
+        commitMessage: msg || `chore: update overrides-${slug}.json via admin`
       });
 
-      result.innerHTML = `
-        <div style="color:#065f46">Success!</div>
+      uiMessage(`
+        <div>✅ Uploaded.</div>
         <ul>
           <li>Path: <code>${payload.path}</code></li>
           <li>Branch: <code>${payload.branch}</code></li>
           <li>Commit: <code>${payload.commit}</code></li>
-          ${payload.html_url ? `<li><a href="${payload.html_url}" target="_blank">View file on GitHub</a></li>` : ""}
+          ${payload.html_url ? `<li><a target="_blank" href="${payload.html_url}">View on GitHub</a></li>` : ""}
         </ul>
-        <p class="muted">The multi-feed Action will pick this up automatically.</p>
-      `;
+        <p class="muted">Workflows listening to overrides-* will pick this up.</p>
+      `, "#065f46");
     } catch (err) {
-      result.innerHTML = "<div style='color:#b91c1c'>Error:</div><pre>" + err.message + "</pre>";
+      uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
     }
   });
 
+  // ---- Save/Update feed (existing behavior, just refreshed) ----
   document.getElementById("saveFeedBtn").addEventListener("click", async () => {
-    result.textContent = "Saving feed…";
     try {
       const key = document.getElementById("key").value.trim();
       const slug = document.getElementById("feedSlug").value.trim();
@@ -118,86 +225,79 @@
       if (!slug || !url) throw new Error("Both slug and feed URL are required to save.");
 
       // Pull current feeds.json, merge/replace, push back
-      const getRes = await fetch(fnUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key, op: "readFile", path: feedsPath })
-      });
-      const txt = await getRes.text();
-      let current = [];
-      try { const p = JSON.parse(txt); if (p.ok && p.content) current = JSON.parse(p.content); } catch {}
+      const r = await callFn({ key, op:"readFile", path: feedsPath });
+      let current = []; try { const p = JSON.parse(r.content||"[]"); current = Array.isArray(p) ? p : (p.feeds||[]); } catch {}
       if (!Array.isArray(current)) current = [];
 
-      const idx = current.findIndex(x => x.slug === slug);
-      if (idx >= 0) current[idx].url = url; else current.push({ slug, url });
+      const idx = current.findIndex(x => (x?.slug||x) === slug);
+      if (idx >= 0) {
+        const o = typeof current[idx] === "string" ? { slug: current[idx], url } : { ...current[idx], url };
+        current[idx] = o;
+      } else {
+        current.push({ slug, url });
+      }
 
-      const payload = await callUploadFunction({
-        key,
-        op: "writeFile",
-        path: feedsPath,
+      const payload = await callFn({
+        key, op: "writeFile", path: feedsPath,
         content: JSON.stringify(current, null, 2),
         commitMessage: `chore: update feeds.json (${slug})`
       });
 
-      result.innerHTML = `
-        <div style="color:#065f46">Saved!</div>
-        <ul>
-          <li>Updated: <code>${feedsPath}</code></li>
-          <li>Commit: <code>${payload.commit}</code></li>
-        </ul>
-        <p class="muted">Now you can upload overrides-<code>${slug}</code>.json or wait for the nightly build.</p>
-      `;
+      uiMessage(`✅ Saved ${slug}. Commit: <code>${payload.commit}</code>`, "#065f46");
+      await loadFeeds();
+      if (!feedSelect.value) feedSelect.value = slug;
+      onFeedChoiceChange();
     } catch (err) {
-      result.innerHTML = "<div style='color:#b91c1c'>Error:</div><pre>" + err.message + "</pre>";
+      uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
     }
   });
 
-  // keys we want to remember locally (safe ones only)
-  const FIELDS = ["adminKey", "repoOwner", "repoName", "targetBranch", "commitMessage", "overridesJson", "feedSlug", "feedUrl"];
-  const LS_KEY = "gtfs_admin_uploader_v1";
-
-  function loadSaved() {
+  // ---- Delete selected feed (and overrides) ----
+  deleteFeedBtn.addEventListener("click", async () => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
-      FIELDS.forEach(k => {
-        const el = document.getElementById(k);
-        if (el && saved[k] != null) el.value = saved[k];
+      const key = document.getElementById("key").value.trim();
+      const slug = (feedSelect.value || "").trim();
+      if (!slug) throw new Error("Select a feed from the dropdown first.");
+      if (!confirm(`Delete feed "${slug}"?\nThis will remove it from feeds.json and delete its overrides.`)) return;
+
+      // 1) Load feeds.json and remove slug
+      const r = await callFn({ key, op:"readFile", path: feedsPath });
+      let current = []; try { const p = JSON.parse(r.content||"[]"); current = Array.isArray(p) ? p : (p.feeds||[]); } catch {}
+      const next = current.filter(x => (x?.slug||x) !== slug);
+
+      // 2) Commit feeds.json
+      await callFn({
+        key, op: "writeFile", path: feedsPath,
+        content: JSON.stringify(next, null, 2),
+        commitMessage: `chore: remove feed ${slug} from feeds.json`
       });
-    } catch {}
-  }
 
-  function saveNow() {
-    const bag = {};
-    FIELDS.forEach(k => {
-      const el = document.getElementById(k);
-      if (el) bag[k] = el.value;
-    });
-    localStorage.setItem(LS_KEY, JSON.stringify(bag));
-  }
+      // 3) Delete per-feed overrides file (if present)
+      await callFn({ key, op:"deleteFile", path:`gtfs-mapper/automation/overrides-${slug}.json` }).catch(()=>{});
 
-  async function callUploadFunction(body) {
-    const res = await fetch(fnUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    let payload; try { payload = JSON.parse(text); } catch { payload = { ok: false, error: text }; }
-    if (!res.ok || !payload.ok) throw new Error(payload.error || text);
-    return payload;
-  }
+      // 4) Remove slug from legacy automation/overrides.json (if present)
+      await callFn({ key, op:"deleteSlugFromOverrides", slug, path:"gtfs-mapper/automation/overrides.json" }).catch(()=>{});
 
-  window.addEventListener("DOMContentLoaded", () => {
+      uiMessage(`🗑️ Deleted feed "${slug}" and its overrides.`, "#7c2d12");
+      await loadFeeds();
+      feedSelect.value = "";
+      onFeedChoiceChange();
+    } catch (err) {
+      uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
+    }
+  });
+
+  // ---- Local storage + init ----
+  window.addEventListener("DOMContentLoaded", async () => {
     loadSaved();
-    FIELDS.forEach(k => {
-      const el = document.getElementById(k);
+    ["key","msg","feedSlug","feedUrl"].forEach(id => {
+      const el = document.getElementById(id);
       if (el) el.addEventListener("input", saveNow);
     });
-    // optional: clear button
-    const clearBtn = document.getElementById("clearSaved");
-    if (clearBtn) clearBtn.addEventListener("click", () => {
+    document.getElementById("clearSaved")?.addEventListener("click", () => {
       localStorage.removeItem(LS_KEY);
-      FIELDS.forEach(k => { const el = document.getElementById(k); if (el) el.value = ""; });
+      ["key","msg","feedSlug","feedUrl"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
     });
+    await loadFeeds();
   });
 </script>

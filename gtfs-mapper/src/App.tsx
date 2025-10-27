@@ -2356,98 +2356,58 @@ const addStopTimeRow = () => {
   const importOverrides = async (file: File) => {
     try {
       const json = JSON.parse(await file.text());
-      // Accept both { rules: { "trip::stop": {...} } } and a raw map
-      const rules: RestrictionsMap = (json?.rules ?? json) as RestrictionsMap;
 
-      // ✅ Use ALL stop_times if we have them cached; fall back to UI subset
-      const sourceRows =
+      // Accept both:
+      //  1) { rules: { "trip::stop": {...} }, stopDefaults?: {...} }
+      //  2) { restrictions: { ... }, stopDefaults?: {...} }
+      //  3) Array forms for either field
+      //  4) Raw { "tripId|stopId": {...} } maps (we’ll wrap as restrictions)
+
+      // Normalize the raw object to the tolerant shape
+      const raw: any = (() => {
+        if (json?.rules && !json?.restrictions) {
+          return { restrictions: json.rules, stopDefaults: json.stopDefaults };
+        }
+        if (json && (json.restrictions || json.stopDefaults)) return json;
+        // fallback: treat the whole file as the restrictions map
+        return { restrictions: json };
+      })();
+
+      // Use ALL stop_times if available (from the GTFS import), else the UI subset
+      const sourceRows: StopTime[] =
         (stopTimesAllRef.current && stopTimesAllRef.current.length)
           ? stopTimesAllRef.current
           : stopTimes;
 
-      // Build normalized (trip_id::stop_id) pairs present in the loaded feed
-      const presentPairs = new Set(
-        sourceRows.map(st => `${String(st.trip_id).trim()}::${String(st.stop_id).trim()}`)
-      );
+      // Parse + clamp to valid (trip,stop) pairs, accept multiple delimiters, arrays, etc.
+      const { restrictions: importedR, stopDefaults: importedD } =
+        importOverridesTolerant(raw, sourceRows);
 
-      // Start from current restrictions (so we merge, don’t blow away user edits)
-      const current: RestrictionsMap = (project?.extras?.restrictions ?? {}) as RestrictionsMap;
-      const next: RestrictionsMap = { ...current };
+      // Optional diagnostics (helps answer “why didn’t X apply?”)
+      const audit = auditOverrides(importedR, sourceRows);
+      console.log("[Overrides] audit:", audit);
 
-      let total = 0;
-      let matched = 0;
-      let skipped = 0;
-
-      for (const [rawKey, rawRule] of Object.entries(rules)) {
-        total++;
-        const key = String(rawKey).trim(); // be forgiving about spacing
-        if (presentPairs.has(key)) {
-          next[key] = normalizeRule(rawRule);
-          matched++;
-        } else {
-          skipped++;
-        }
-      }
-
+      // Merge with existing (don’t wipe any rules already set/edited in UI or inferred from GTFS)
       setProject((prev: any) => ({
         ...(prev ?? {}),
-        extras: { ...(prev?.extras ?? {}), restrictions: next },
+        extras: {
+          ...(prev?.extras ?? {}),
+          restrictions: { ...(prev?.extras?.restrictions ?? {}), ...importedR },
+          stopDefaults: { ...(prev?.extras?.stopDefaults ?? {}), ...importedD },
+        },
       }));
 
-      // Replace: const inferredStopDefaults: Record<string, ODRestriction> = {};
-      const inferredStopDefaults: StopDefaultsMap = {} as any;
-
-      // Replace the whole for-loop with this version:
-      for (const [key, rule] of Object.entries(next)) {
-        const [, stop_id] = key.split("::");
-        if (!stop_id) continue;
-
-        const ruleMode: StopRuleMode = asMode((rule as any)?.mode);
-        // keep only special modes
-        if (ruleMode !== "pickup" && ruleMode !== "dropoff" && ruleMode !== "custom") continue;
-
-        // write/read using scoped key (global: no route, any direction)
-        const scopedKey = stopDefaultKey("", undefined, stop_id) as ScopedStopKey;
-        const existing = inferredStopDefaults[scopedKey];
-        const currentMode: StopRuleMode = asMode(existing?.mode);
-
-        if (!existing) {
-          inferredStopDefaults[scopedKey] = { ...(rule as any), mode: ruleMode };
-        } else if (currentMode !== "custom" && ruleMode === "custom") {
-          inferredStopDefaults[scopedKey] = { ...(rule as any), mode: ruleMode };
-        } else if (currentMode === "normal") {
-          inferredStopDefaults[scopedKey] = { ...(rule as any), mode: ruleMode };
-        }
-      }
-
-      if (Object.keys(inferredStopDefaults).length) {
-        setProject((prev: any) => ({
-          ...(prev ?? {}),
-          extras: {
-            ...(prev?.extras ?? {}),
-            stopDefaults: {
-              ...(prev?.extras?.stopDefaults ?? {}),
-              ...inferredStopDefaults,
-            },
-          },
-        }));
-        console.log("[Overrides] Stop defaults updated:", inferredStopDefaults);
-      }
-
+      const total = Object.keys(importedR).length;
       setBanner({
-        kind: matched ? "success" : "info",
-        text: `Overrides: applied ${matched}/${total}${skipped ? ` (${skipped} unmatched)` : ""}.`,
+        kind: total ? "success" : "info",
+        text: total
+          ? `Overrides: applied ${audit.ok}/${total}` +
+            (audit.notOnTrip || audit.badTrip || audit.badStop
+              ? ` (skipped ${audit.notOnTrip + audit.badTrip + audit.badStop})`
+              : "")
+          : "Overrides: no applicable entries found.",
       });
       setTimeout(() => setBanner(null), 3200);
-
-      // Helpful console diagnostics
-      console.log("[Overrides] presentPairs size:", presentPairs.size);
-      if (!matched) {
-        const firstRuleKey = Object.keys(rules)[0];
-        console.log("[Overrides] Example key from file:", firstRuleKey);
-        // If you need to quickly check why a specific key won't match:
-        // console.log("has key?", presentPairs.has(String(firstRuleKey).trim()));
-      }
     } catch (e) {
       console.error(e);
       setBanner({ kind: "error", text: "Invalid overrides.json" });
@@ -2594,6 +2554,44 @@ const addStopTimeRow = () => {
             stopTimesAllRef.current = null;
             setStopTimes([]);
           }
+
+          (() => {
+            const rows = stopTimesAllRef.current ?? [];
+            if (!rows.length) return;
+
+            const inferred: Record<string, ODRestriction> = {};
+            for (const r of rows) {
+              const pick = Number(r.pickup_type ?? 0);
+              const drop = Number(r.drop_off_type ?? 0);
+
+              // drop-off only
+              if (pick === 1 && drop !== 1) {
+                inferred[`${r.trip_id}::${r.stop_id}`] = { mode: "dropoff" };
+                continue;
+              }
+              // pickup only
+              if (drop === 1 && pick !== 1) {
+                inferred[`${r.trip_id}::${r.stop_id}`] = { mode: "pickup" };
+                continue;
+              }
+              // both 1 → “pass-through / timepoint only”: skip (no rule)
+            }
+
+            if (Object.keys(inferred).length) {
+              setProject((prev: any) => ({
+                ...(prev ?? {}),
+                extras: {
+                  ...(prev?.extras ?? {}),
+                  // merge with whatever you reset at the start of import
+                  restrictions: {
+                    ...(prev?.extras?.restrictions ?? {}),
+                    ...inferred,
+                  },
+                },
+              }));
+              log("[GTFS Import] inferred restrictions from pickup/dropoff flags:", Object.keys(inferred).length);
+            }
+          })();
 
           if (shapesRaw.length) {
             setShapePts(

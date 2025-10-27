@@ -20,11 +20,12 @@ export const handler = async (event) => {
     const body = JSON.parse(event.body || "{}");
     const {
       key,                 // admin password
-      op,                  // "readFile" | "writeFile" | undefined (default: write overrides)
-      path,                // repo path to read/write (required for readFile/writeFile; optional for overrides)
-      overridesJson,       // string (raw JSON) when writing overrides
+      op,                  // "readFile" | "writeFile" | "deleteFile" | "deleteSlugFromOverrides" | undefined
+      path,                // repo path to read/write/delete
+      overridesJson,       // string (raw JSON) when writing overrides (legacy/default)
       content,             // string content for writeFile
-      commitMessage        // optional message
+      commitMessage,       // optional message
+      slug                 // for deleteSlugFromOverrides
     } = body;
 
     // simple auth gate
@@ -49,11 +50,16 @@ export const handler = async (event) => {
     // Helpers
     async function getFile(pathInRepo) {
       const p = normalizeRepoPath(pathInRepo);
-      const res = await octokit.repos.getContent({ owner, repo, path: p, ref: branch });
-      if (Array.isArray(res.data)) throw new Error("Path refers to a directory");
-      const { sha, content: b64, encoding } = res.data;
-      const buff = Buffer.from(b64, encoding === "base64" ? "base64" : "utf8");
-      return { sha, text: buff.toString("utf8") };
+      try {
+        const res = await octokit.repos.getContent({ owner, repo, path: p, ref: branch });
+        if (Array.isArray(res.data)) throw new Error("Path refers to a directory");
+        const { sha, content: b64, encoding } = res.data;
+        const buff = Buffer.from(b64, encoding === "base64" ? "base64" : "utf8");
+        return { sha, text: buff.toString("utf8") };
+      } catch (e) {
+        if (e.status === 404) return { sha: null, text: null };
+        throw e;
+      }
     }
 
     async function putFile(pathInRepo, text, message) {
@@ -85,10 +91,36 @@ export const handler = async (event) => {
       };
     }
 
-    // Ops
+    async function deleteFile(pathInRepo, message) {
+      const p = normalizeRepoPath(pathInRepo);
+      const cur = await getFile(p);
+      if (!cur.sha) {
+        // nothing to delete
+        return { ok: true, path: p, branch, commit: null, deleted: false };
+      }
+      const { data } = await octokit.repos.deleteFile({
+        owner,
+        repo,
+        path: p,
+        message: message || `chore: delete ${p}`,
+        sha: cur.sha,
+        branch
+      });
+      return {
+        ok: true,
+        path: p,
+        branch,
+        commit: data?.commit?.sha || null,
+        deleted: true
+      };
+    }
+
+    // ---- Ops ----
+
     if (op === "readFile") {
       if (!path) return { statusCode: 400, body: "Bad Request: path required for readFile" };
       const { text } = await getFile(path);
+      // return empty content (not error) if missing, keeps UI simple
       return { statusCode: 200, body: JSON.stringify({ ok: true, content: text }) };
     }
 
@@ -102,8 +134,47 @@ export const handler = async (event) => {
       return { statusCode: 200, body: JSON.stringify(result) };
     }
 
-    // Default: write overrides
-    // Accept a custom target path; default to the legacy location if none provided.
+    if (op === "deleteFile") {
+      if (!path) return { statusCode: 400, body: "Bad Request: path required for deleteFile" };
+      const out = await deleteFile(path, commitMessage);
+      return { statusCode: 200, body: JSON.stringify(out) };
+    }
+
+    if (op === "deleteSlugFromOverrides") {
+      if (!path || !slug) {
+        return { statusCode: 400, body: "Bad Request: slug and path are required" };
+      }
+      const normalizedPath = normalizeRepoPath(path);
+      const cur = await getFile(normalizedPath);
+
+      if (!cur.text) {
+        // nothing to change
+        return { statusCode: 200, body: JSON.stringify({ ok: true, path: normalizedPath, branch, changed: false, commit: null }) };
+      }
+
+      // Support {overrides:{...}} or flat {...}
+      let j; try { j = JSON.parse(cur.text); } catch { j = {}; }
+      const bag = (j && typeof j === "object" && j.overrides && typeof j.overrides === "object")
+        ? { overrides: { ...j.overrides } }
+        : { overrides: (j && typeof j === "object") ? { ...j } : {} };
+
+      if (!(slug in bag.overrides)) {
+        return { statusCode: 200, body: JSON.stringify({ ok: true, path: normalizedPath, branch, changed: false, commit: null }) };
+      }
+
+      delete bag.overrides[slug];
+
+      // If empty after deletion, delete the file entirely
+      if (Object.keys(bag.overrides).length === 0) {
+        const out = await deleteFile(normalizedPath, commitMessage || `chore: delete empty ${normalizedPath}`);
+        return { statusCode: 200, body: JSON.stringify({ ok: true, ...out, changed: true }) };
+      } else {
+        const out = await putFile(normalizedPath, JSON.stringify(bag, null, 2), commitMessage || `chore: remove ${slug} from ${normalizedPath}`);
+        return { statusCode: 200, body: JSON.stringify({ ok: true, ...out, changed: true }) };
+      }
+    }
+
+    // ---- Default legacy: write overrides to provided path (or legacy path) ----
     if (typeof overridesJson !== "string") {
       return { statusCode: 400, body: "Bad Request: overridesJson (string) required" };
     }
