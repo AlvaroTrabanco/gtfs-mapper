@@ -22,6 +22,10 @@
     <label>Admin key</label>
     <input type="password" id="key" placeholder="Your ADMIN_KEY" required />
 
+    <label>Public site base URL</label>
+    <input type="text" id="siteBase" placeholder="https://alvarotrabanco.github.io/gtfs-mapper" />
+    <p class="muted">Where <code>feeds.json</code> and <code>registry.json</code> are published (your GitHub Pages site).</p>
+
     <label>Feed</label>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       <select id="feedSelect" style="flex:1 1 260px;"></select>
@@ -57,11 +61,14 @@
   <div id="result" style="margin-top:16px;"></div>
 </div>
 
+give me the whole script
+
 <script>
   const fnUrl = "/.netlify/functions/upload-overrides";
   const feedsPath = "gtfs-mapper/automation/feeds.json";
 
   const form = document.getElementById("uploader");
+  
   const result = document.getElementById("result");
   const previewBtn = document.getElementById("previewBtn");
   const fileInput = document.getElementById("file");
@@ -69,7 +76,7 @@
   const refreshFeedsBtn = document.getElementById("refreshFeeds");
   const deleteFeedBtn = document.getElementById("deleteFeedBtn");
 
-  const FIELDS = ["adminKey","commitMessage","feedSlug","feedUrl"];
+  const FIELDS = ["adminKey","repoOwner","repoName","targetBranch","commitMessage","overridesJson","feedSlug","feedUrl","siteBase"];
   const LS_KEY = "gtfs_admin_uploader_v2";
   let lastJsonText = null;
   let feedsCache = [];  // [{slug,url}]
