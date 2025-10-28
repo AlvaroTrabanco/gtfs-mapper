@@ -297,29 +297,26 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     trips.forEach(t => { t.trip_headsign ??= ""; t.shape_id ??= ""; t.direction_id ??= ""; });
 
     const overridesText = await loadOverridesText();
-
-    // --------- PICK THE RIGHT OVERRIDES SHAPE -------------
-    // Accept:
-    //  A) {overrides:{ [SLUG]: {version?, rules|restrictions|map} }}
-    //  B) {version?, rules|restrictions|map}
-    //  C) array of rows
     let overridesRaw = {};
     try {
       const j = JSON.parse(overridesText || "{}");
 
       if (j && typeof j === "object" && j.overrides && typeof j.overrides === "object") {
         if (j.overrides[SLUG]) {
-          overridesRaw = j.overrides[SLUG];                   // preferred: exact slug
+          overridesRaw = j.overrides[SLUG];                          // exact match for this feed
         } else {
           const keys = Object.keys(j.overrides);
-          overridesRaw = keys.length === 1 ? j.overrides[keys[0]] : {}; // single other slug -> take it
+          overridesRaw = keys.length === 1 ? j.overrides[keys[0]] : {}; // single other slug -> accept, else empty
         }
       } else {
-        overridesRaw = j; // already a body (B/C)
+        overridesRaw = j; // already a body (rules at top-level or array form)
       }
     } catch {
       overridesRaw = {};
     }
+
+    console.log("[overrides] source =", OVERRIDES_URL || OVERRIDES_PATH);
+    console.log("[overrides] slug =", SLUG, "| top keys =", Object.keys(overridesRaw || {}).slice(0,5));
     // ------------------------------------------------------
 
     const restrictions = importOverridesTolerant(overridesRaw, stopTimes);
