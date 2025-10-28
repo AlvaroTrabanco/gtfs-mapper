@@ -53,7 +53,7 @@ jobs:
             echo "No dist/ directory; skipping app.js/style.css"
           fi
 
-      - name: Build site per feed (strict download + diagnostics)
+      - name: Build site per feed (download, compile with overrides, index)
         shell: bash
         run: |
           set -euo pipefail
@@ -76,6 +76,7 @@ jobs:
           # Save slugs for registry/admin
           cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
+          # Helper to fetch source GTFS (kept for debugging headers)
           fetch_with_diag() {
             local url="$1" out="$2" dir
             dir="$(dirname "$out")"
@@ -122,18 +123,14 @@ jobs:
             [ -z "${SLUG:-}" ] && continue
             mkdir -p "site/${SLUG}"
 
-            if [ -z "${URL:-}" ]; then
-              echo "ERROR: Feed ${SLUG} has no URL in feeds.json"
-              any_fail=1
-              URL_DISPLAY="(missing URL)"
-              LOCAL_NOTE="<em>No source URL provided</em>"
-            else
-              URL_DISPLAY="${URL}"
+            # Optional: keep headers/download debug page
+            URL_DISPLAY="${URL:-}"
+            LOCAL_NOTE=""
+            if [ -n "${URL:-}" ]; then
               echo "::group::Downloading ${SLUG}"
               echo "URL: ${URL}"
               if fetch_with_diag "${URL}" "site/${SLUG}/gtfs.zip"; then
                 LOCAL_NOTE='<a href="gtfs.zip">Download GTFS (local)</a>'
-                echo "OK  -> site/${SLUG}/gtfs.zip"
                 du -h "site/${SLUG}/gtfs.zip" || true
               else
                 any_fail=1
@@ -144,8 +141,43 @@ jobs:
                 fi
               fi
               echo "::endgroup::"
+            else
+              any_fail=1
+              URL_DISPLAY="(missing URL)"
+              LOCAL_NOTE="<em>No source URL provided</em>"
             fi
 
+            # --------------------------------------------
+            # Compile with overrides (per-slug preferred)
+            # --------------------------------------------
+            OVR_FILE=""
+            if [ -f "automation/overrides-${SLUG}.json" ]; then
+              OVR_FILE="automation/overrides-${SLUG}.json"
+            elif [ -f "automation/overrides.json" ]; then
+              OVR_FILE="automation/overrides.json"
+            fi
+            echo "OVERRIDES for ${SLUG}: ${OVR_FILE:-none}"
+            [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
+
+            # Run the builder; it downloads FEED_URL itself and applies OVERRIDES if provided
+            if [ -n "${OVR_FILE}" ]; then
+              FEED_SLUG="${SLUG}" \
+              FEED_URL="${URL:-}" \
+              OUT_DIR="site/${SLUG}" \
+              OUT_ZIP="compiled.zip" \
+              OUT_REPORT="report.json" \
+              OVERRIDES="${OVR_FILE}" \
+              node automation/rebuild-gtfs.js || any_fail=1
+            else
+              FEED_SLUG="${SLUG}" \
+              FEED_URL="${URL:-}" \
+              OUT_DIR="site/${SLUG}" \
+              OUT_ZIP="compiled.zip" \
+              OUT_REPORT="report.json" \
+              node automation/rebuild-gtfs.js || any_fail=1
+            fi
+
+            # Per-feed index (no heredoc)
             INDEX_HTML='<!doctype html><meta charset="utf-8">
             <title>{{TITLE}}</title>
             <h1>{{TITLE}}</h1>
@@ -153,21 +185,36 @@ jobs:
               <li>'"${LOCAL_NOTE}"'</li>
               <li><a href="'"${URL_DISPLAY//\"/&quot;}"'">Original source URL</a></li>
               <li><a href="headers.txt">Response headers</a> (debug)</li>
+              <li><a href="compiled.zip">compiled.zip</a></li>
+              <li><a href="report.json">report.json</a></li>
             </ul>
             <p>Last updated: <span id="ts"></span></p>
-            <script>document.getElementById("ts").textContent = new Date().toISOString();</script>'
+            <script>
+              document.getElementById("ts").textContent = new Date().toISOString();
+              (async()=>{
+                try{
+                  const r = await fetch("report.json",{cache:"no-store"});
+                  if(!r.ok) return;
+                  const rep = await r.json();
+                  const p = document.createElement("p");
+                  p.innerHTML = "Overrides total: <b>"+(rep.overrides?.total??0)+"</b> · source: <code>"+(rep.overridesSource||"")+"</code>";
+                  document.body.appendChild(p);
+                }catch{}
+              })();
+            </script>'
             printf "%s\n" "$INDEX_HTML" > "site/${SLUG}/index.html"
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
+
           done < feeds.tsv
 
           echo "Built tree under site/:"
           find site -maxdepth 2 -type f -printf "%p (%k KB)\n" | sort
 
           if [ "$any_fail" -ne 0 ]; then
-            echo "One or more feeds failed to download/validate. See per-feed pages (headers.txt, error.html) and logs."
+            echo "One or more feeds failed to download or compile. See logs."
             exit 1
           fi
-         
+
       - name: Generate registry.json (what’s built)
         shell: bash
         run: |
@@ -183,13 +230,12 @@ jobs:
             fs.writeFileSync("site/registry.json", JSON.stringify(registry,null,2));
           '
 
-      - name: Root index
+      - name: Root index (no heredoc)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p site
-          cat > site/index.html <<'EOF'
-          <!doctype html><meta charset="utf-8">
+          INDEX_ROOT='<!doctype html><meta charset="utf-8">
           <title>GTFS Mapper Feeds</title>
           <h1>GTFS Mapper Feeds</h1>
           <p>Last updated: <span id="ts"></span></p>
@@ -197,27 +243,27 @@ jobs:
           <script>
             document.getElementById("ts").textContent = new Date().toISOString();
             (async () => {
-              const res = await fetch('./feeds.json').catch(() => null);
+              const res = await fetch("./feeds.json").catch(() => null);
               const data = res && res.ok ? await res.json() : [];
               const arr = Array.isArray(data) ? data : (data.feeds || []);
-              const slugs = arr.map(x => typeof x === 'string' ? x : x.slug).filter(Boolean);
-              const ul = document.getElementById('list');
+              const slugs = arr.map(x => typeof x === "string" ? x : x.slug).filter(Boolean);
+              const ul = document.getElementById("list");
               for (const slug of slugs) {
-                const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.href = './' + slug + '/';
+                const li = document.createElement("li");
+                const a = document.createElement("a");
+                a.href = "./" + slug + "/";
                 a.textContent = slug;
                 li.appendChild(a);
                 ul.appendChild(li);
               }
             })();
-          </script>
-          EOF
+          </script>'
+          printf "%s\n" "$INDEX_ROOT" > site/index.html
 
       - name: Expose feeds.json
         run: cp automation/feeds.json site/feeds.json
-      
-      - name: Add Admin dashboard
+
+      - name: Add Admin dashboard (no heredoc)
         shell: bash
         run: |
           set -euo pipefail
@@ -226,7 +272,7 @@ jobs:
           <title>GTFS Admin</title>
           <style>
             body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}
-            h1{margin:0 0 8px} .muted{color:#666;margin:0 0 24px}
+            h1{margin:0 0 8px}.muted{color:#666;margin:0 0 24px}
             table{border-collapse:collapse;width:100%;margin:16px 0}
             th,td{border:1px solid #ddd;padding:8px;text-align:left}
             th{background:#f7f7f7}
@@ -239,106 +285,38 @@ jobs:
           </style>
           <h1>GTFS Admin</h1>
           <p class="muted">Shows feeds from <code>feeds.json</code> and which ones are currently built on the site. Creates an <code>overrides.json</code> patch for the selected feed.</p>
-
           <div id="app">Loading…</div>
-
           <script>
           (async function(){
             const app = document.getElementById("app");
-            const get = async (p, fallback)=> {
-              try {
-                const r = await fetch(p);
-                if (!r.ok) return fallback;
-                return await r.json();
-              } catch { return fallback; }
-            };
-            // Accept 3 formats for feeds: [{slug,url}], {feeds:[...]}, or ["slug",...]
+            const get = async (p, fallback)=>{ try{ const r=await fetch(p); if(!r.ok) return fallback; return await r.json(); }catch{return fallback;} };
             const feedsRaw = await get("../feeds.json", []);
             const feedsArr = Array.isArray(feedsRaw) ? feedsRaw : (feedsRaw.feeds || []);
-            const feeds = feedsArr.map(x => typeof x==="string" ? {slug:x, url:null} : x)
-                                  .filter(x => x && x.slug);
-
+            const feeds = feedsArr.map(x=>typeof x==="string"?{slug:x,url:null}:x).filter(x=>x&&x.slug);
             const reg = await get("../registry.json", { slugsBuilt: [] });
             const built = new Set(reg.slugsBuilt || []);
-
-            const rows = feeds.map(f => {
-              const inSystem = built.has(f.slug);
-              return { slug:f.slug, url:f.url||"", inSystem };
-            });
-
-            const mk = (tag, attrs={}, html="") => {
-              const el = document.createElement(tag);
-              for (const k in attrs) el.setAttribute(k, attrs[k]);
-              el.innerHTML = html;
-              return el;
-            };
-
-            const table = mk("table");
-            table.innerHTML = "<thead><tr><th>Slug</th><th>URL</th><th>Status</th><th>Action</th></tr></thead>";
-            const tbody = mk("tbody");
-            table.appendChild(tbody);
-
-            for (const r of rows) {
-              const tr = mk("tr");
-              tr.appendChild(mk("td",{}, `<code>${r.slug}</code>`));
-              tr.appendChild(mk("td",{}, r.url ? `<a href="${r.url}" target="_blank" rel="noopener">${r.url}</a>` : "<em class='muted'>—</em>"));
-              tr.appendChild(mk("td",{}, r.inSystem
-                ? `<span class="pill ok">in system</span>`
-                : `<span class="pill miss">not built</span>`));
-              const tdAct = mk("td");
-              const btn = mk("button",{}, "Create overrides patch");
-              btn.onclick = () => openPatch(r.slug, r.url);
-              tdAct.appendChild(btn);
-              tr.appendChild(tdAct);
-              tbody.appendChild(tr);
+            const rows = feeds.map(f=>({ slug:f.slug, url:f.url||"", inSystem: built.has(f.slug) }));
+            const mk=(t,a={},h="")=>{const e=document.createElement(t); for(const k in a)e.setAttribute(k,a[k]); e.innerHTML=h; return e;};
+            const table=mk("table"); table.innerHTML="<thead><tr><th>Slug</th><th>URL</th><th>Status</th><th>Action</th></tr></thead>";
+            const tbody=mk("tbody"); table.appendChild(tbody);
+            for(const r of rows){
+              const tr=mk("tr");
+              tr.appendChild(mk("td",{},`<code>${r.slug}</code>`));
+              tr.appendChild(mk("td",{}, r.url?`<a href=\"${r.url}\" target=\"_blank\" rel=\"noopener\">${r.url}</a>`:"<em class=\"muted\">—</em>"));
+              tr.appendChild(mk("td",{}, r.inSystem?`<span class=\"pill ok\">in system</span>`:`<span class=\"pill miss\">not built</span>`));
+              const tdAct=mk("td"); const btn=mk("button",{},"Create overrides patch"); btn.onclick=()=>openPatch(r.slug,r.url); tdAct.appendChild(btn); tr.appendChild(tdAct); tbody.appendChild(tr);
             }
-
-            const panel = mk("div", {class:"row"});
-            panel.innerHTML = `
-              <h2>Create overrides.json patch</h2>
-              <p class="muted">Pick a slug from the table above, then edit the JSON below and save it. Commit this file as <code>gtfs-mapper/automation/overrides.json</code>.</p>
-              <div class="actions">
-                <button id="download">Download overrides.json</button>
-                <button id="copy">Copy to clipboard</button>
-              </div>
-              <div class="row"><textarea id="txt"></textarea></div>
-            `;
-            app.innerHTML = "";
-            app.appendChild(table);
-            app.appendChild(panel);
-
-            const txt = panel.querySelector("#txt");
-            const btnDl = panel.querySelector("#download");
-            const btnCp = panel.querySelector("#copy");
-
-            // Load current overrides if published at ../overrides.json
-            const existing = await get("../overrides.json", null);
-            if (existing) txt.value = JSON.stringify(existing, null, 2);
-
-            function openPatch(slug, url){
-              // Minimal starting structure; customize fields as needed
-              const base = existing || { overrides: {} };
-              base.overrides[slug] = Object.assign({}, base.overrides[slug] || {}, {
-                sourceUrl: url || (base.overrides[slug]?.sourceUrl || ""),
-                // put other override keys here, e.g. calendarFixes, routeRenames, etc.
-              });
-              txt.value = JSON.stringify(base, null, 2);
-              txt.focus();
-            }
-
-            btnDl.onclick = () => {
-              const blob = new Blob([txt.value || "{}"], {type:"application/json"});
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = "overrides.json";
-              a.click();
-              URL.revokeObjectURL(a.href);
-            };
-
-            btnCp.onclick = async () => {
-              try { await navigator.clipboard.writeText(txt.value || ""); btnCp.textContent = "Copied!"; setTimeout(()=>btnCp.textContent="Copy to clipboard", 1500); }
-              catch { alert("Copy failed; select the text and copy manually."); }
-            };
+            const panel=mk("div",{class:"row"});
+            panel.innerHTML=`<h2>Create overrides.json patch</h2>
+            <p class="muted">Pick a slug from the table above, then edit the JSON below and save it. Commit this file as <code>gtfs-mapper/automation/overrides.json</code>.</p>
+            <div class="actions"><button id="download">Download overrides.json</button><button id="copy">Copy to clipboard</button></div>
+            <div class="row"><textarea id="txt"></textarea></div>`;
+            app.innerHTML=""; app.appendChild(table); app.appendChild(panel);
+            const txt=panel.querySelector("#txt"); const btnDl=panel.querySelector("#download"); const btnCp=panel.querySelector("#copy");
+            const existing = await get("../overrides.json", null); if(existing) txt.value = JSON.stringify(existing,null,2);
+            function openPatch(slug,url){ const base=existing||{overrides:{}}; base.overrides[slug]=Object.assign({},base.overrides[slug]||{},{sourceUrl: url || (base.overrides[slug]?.sourceUrl || "")}); txt.value=JSON.stringify(base,null,2); txt.focus(); }
+            btnDl.onclick=()=>{ const blob=new Blob([txt.value||"{}"],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="overrides.json"; a.click(); URL.revokeObjectURL(a.href); };
+            btnCp.onclick=async()=>{ try{ await navigator.clipboard.writeText(txt.value||""); btnCp.textContent="Copied!"; setTimeout(()=>btnCp.textContent="Copy to clipboard",1500);}catch{ alert("Copy failed; copy manually."); } };
           })();
           </script>'
           printf "%s\n" "$ADMIN_HTML" > site/admin/index.html
