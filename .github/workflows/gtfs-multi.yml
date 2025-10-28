@@ -182,10 +182,9 @@ jobs:
             <title>{{TITLE}}</title>
             <h1>{{TITLE}}</h1>
             <ul>
-              <li>'"${LOCAL_NOTE}"'</li>
+              <li><a href="compiled.zip">compiled.zip</a></li>
               <li><a href="'"${URL_DISPLAY//\"/&quot;}"'">Original source URL</a></li>
               <li><a href="headers.txt">Response headers</a> (debug)</li>
-              <li><a href="compiled.zip">compiled.zip</a></li>
               <li><a href="report.json">report.json</a></li>
             </ul>
             <p>Last updated: <span id="ts"></span></p>
