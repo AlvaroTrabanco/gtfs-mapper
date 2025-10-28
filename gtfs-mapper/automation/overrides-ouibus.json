@@ -1,65 +1,20 @@
 {
   "version": 1,
   "rules": {
-    "2382921895::XBC": {
-      "mode": "custom",
-      "dropoffOnlyFrom": [
-        "XRF",
-        "XMT",
-        "PGF"
-      ],
-      "pickupOnlyTo": [
-        "ALE",
-        "STB",
-        "ACC"
-      ]
+    "3372992033::ACW": {
+      "mode": "pickup"
     },
-    "2382921895::ACX": {
-      "mode": "custom",
-      "dropoffOnlyFrom": [
-        "XRF",
-        "XMT",
-        "PGF"
-      ],
-      "pickupOnlyTo": [
-        "ALE",
-        "STB"
-      ]
+    "3372992033::EAS": {
+      "mode": "pickup"
     },
-    "2382921895::ACW": {
+    "3372992033::ZFQ": {
       "mode": "custom",
       "dropoffOnlyFrom": [
-        "XRF",
-        "XMT",
-        "PGF"
+        "MDS",
+        "ACW"
       ],
       "pickupOnlyTo": [
-        "ALE",
-        "STB"
-      ]
-    },
-    "2382921895::MDS": {
-      "mode": "custom",
-      "dropoffOnlyFrom": [
-        "XRF",
-        "XMT",
-        "PGF"
-      ],
-      "pickupOnlyTo": [
-        "ALE",
-        "STB"
-      ]
-    },
-    "2382921895::ACC": {
-      "mode": "custom",
-      "dropoffOnlyFrom": [
-        "XRF",
-        "XMT",
-        "PGF"
-      ],
-      "pickupOnlyTo": [
-        "STB",
-        "ALE"
+        "XPB"
       ]
     }
   }
