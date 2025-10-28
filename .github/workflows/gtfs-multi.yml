@@ -113,29 +113,29 @@ jobs:
 
             # Minimal per-feed page (only compiled artefacts)
             cat > "site/${SLUG}/index.html" <<'EOF'
-            <!doctype html><meta charset="utf-8">
-            <title>{{TITLE}}</title>
-            <h1>{{TITLE}}</h1>
-            <ul>
-              <li><a href="compiled.zip">compiled.zip</a></li>
-              <li><a href="report.json">report.json</a></li>
-            </ul>
-            <p>Last updated: <span id="ts"></span></p>
-            <script>document.getElementById('ts').textContent = new Date().toISOString();</script>
-            <script>
-            (async()=>{
-              try {
-                const r = await fetch('report.json',{cache:'no-store'});
-                if (!r.ok) return;
-                const rep = await r.json();
-                const p=document.createElement('p');
-                p.innerHTML='Overrides total: <b>'+(rep.overrides?.total??0)
-                  +'</b> · source: <code>'+(rep.overridesSource||'')+'</code>';
-                document.body.appendChild(p);
-              } catch {}
-            })();
-            </script>
-            EOF
+              <!doctype html><meta charset="utf-8">
+              <title>{{TITLE}}</title>
+              <h1>{{TITLE}}</h1>
+              <ul>
+                <li><a href="compiled.zip">compiled.zip</a></li>
+                <li><a href="report.json">report.json</a></li>
+              </ul>
+              <p>Last updated: <span id="ts"></span></p>
+              <script>document.getElementById('ts').textContent = new Date().toISOString();</script>
+              <script>
+              (async()=>{
+                try {
+                  const r = await fetch('report.json',{cache:'no-store'});
+                  if (!r.ok) return;
+                  const rep = await r.json();
+                  const p=document.createElement('p');
+                  p.innerHTML='Overrides total: <b>'+(rep.overrides?.total??0)
+                    +'</b> · source: <code>'+(rep.overridesSource||'')+'</code>';
+                  document.body.appendChild(p);
+                } catch {}
+              })();
+              </script>
+              EOF
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
             done < feeds.tsv
 
