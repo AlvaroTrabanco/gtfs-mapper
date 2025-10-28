@@ -297,8 +297,31 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     trips.forEach(t => { t.trip_headsign ??= ""; t.shape_id ??= ""; t.direction_id ??= ""; });
 
     const overridesText = await loadOverridesText();
+
+    // --------- PICK THE RIGHT OVERRIDES SHAPE -------------
+    // Accept:
+    //  A) {overrides:{ [SLUG]: {version?, rules|restrictions|map} }}
+    //  B) {version?, rules|restrictions|map}
+    //  C) array of rows
     let overridesRaw = {};
-    try { overridesRaw = JSON.parse(overridesText || "{}"); } catch { overridesRaw = {}; }
+    try {
+      const j = JSON.parse(overridesText || "{}");
+
+      if (j && typeof j === "object" && j.overrides && typeof j.overrides === "object") {
+        if (j.overrides[SLUG]) {
+          overridesRaw = j.overrides[SLUG];                   // preferred: exact slug
+        } else {
+          const keys = Object.keys(j.overrides);
+          overridesRaw = keys.length === 1 ? j.overrides[keys[0]] : {}; // single other slug -> take it
+        }
+      } else {
+        overridesRaw = j; // already a body (B/C)
+      }
+    } catch {
+      overridesRaw = {};
+    }
+    // ------------------------------------------------------
+
     const restrictions = importOverridesTolerant(overridesRaw, stopTimes);
 
     const entries = Object.entries(restrictions);

@@ -53,13 +53,13 @@ jobs:
             echo "No dist/ directory; skipping app.js/style.css"
           fi
 
-      - name: Build site per feed (strict download + diagnostics)
+      - name: Build site per feed (compile with overrides)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p site
 
-          # Build TSV: slug \t url (supports [{slug,url}], {feeds:[...]}, ["slug"])
+          # Build TSV: slug \t url
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
@@ -76,91 +76,12 @@ jobs:
           # Save slugs for registry/admin
           cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
-          fetch_with_diag() {
-            local url="$1" out="$2" dir
-            dir="$(dirname "$out")"
-            mkdir -p "$dir"
-            local hdr="$dir/headers.txt"
-            local raw="$dir/download.raw"
-            rm -f "$hdr" "$raw" "$out" "$out.part" "$dir/error.html"
-
-            echo "---- HEAD $url"
-            curl -sS -I -L -A "gtfs-mapper-ci" "$url" || true
-
-            echo "---- GET  $url"
-            if ! curl -L -sS \
-                -H "Accept: application/zip, application/octet-stream,*/*" \
-                -A "gtfs-mapper-ci" \
-                -D "$hdr" \
-                --connect-timeout 30 \
-                --max-time 900 \
-                --retry 5 --retry-delay 5 --retry-connrefused \
-                -C - \
-                -o "$raw" \
-                "$url"; then
-              echo "Curl failed (network/HTTP). See $hdr and $raw"
-              return 1
-            fi
-
-            # ZIP magic (PK\x03\x04) + deep validation
-            if head -c 4 "$raw" | hexdump -Cv | grep -q "50 4b 03 04"; then
-              mv "$raw" "$out"
-              if ! unzip -tqq "$out" >/dev/null 2>&1; then
-                echo "Downloaded file is not a valid ZIP (unzip test failed)."
-                return 2
-              fi
-              return 0
-            else
-              echo "Response is not ZIP; leaving as error.html for debugging."
-              mv "$raw" "$dir/error.html"
-              return 3
-            fi
-          }
-
           any_fail=0
           while IFS=$'\t' read -r SLUG URL; do
             [ -z "${SLUG:-}" ] && continue
             mkdir -p "site/${SLUG}"
 
-            if [ -z "${URL:-}" ]; then
-              echo "ERROR: Feed ${SLUG} has no URL in feeds.json"
-              any_fail=1
-              URL_DISPLAY="(missing URL)"
-              LOCAL_NOTE="<em>No source URL provided</em>"
-            else
-              URL_DISPLAY="${URL}"
-              echo "::group::Downloading ${SLUG}"
-              echo "URL: ${URL}"
-              if fetch_with_diag "${URL}" "site/${SLUG}/gtfs.zip"; then
-                LOCAL_NOTE='<a href="gtfs.zip">Download GTFS (local)</a>'
-                echo "OK  -> site/${SLUG}/gtfs.zip"
-                du -h "site/${SLUG}/gtfs.zip" || true
-              else
-                any_fail=1
-                if [ -f "site/${SLUG}/error.html" ]; then
-                  LOCAL_NOTE='<em>Local GTFS not available — see <a href="error.html">error detail</a></em>'
-                else
-                  LOCAL_NOTE='<em>Local GTFS not available — see headers.txt/download.raw</em>'
-                fi
-              fi
-              echo "::endgroup::"
-            fi
-
-            INDEX_HTML='<!doctype html><meta charset="utf-8">
-            <title>{{TITLE}}</title>
-            <h1>{{TITLE}}</h1>
-            <ul>
-              <li>'"${LOCAL_NOTE}"'</li>
-              <li><a href="'"${URL_DISPLAY//\"/&quot;}"'">Original source URL</a></li>
-              <li><a href="headers.txt">Response headers</a> (debug)</li>
-            </ul>
-            <p>Last updated: <span id="ts"></span></p>
-            <script>document.getElementById("ts").textContent = new Date().toISOString();</script>'
-            printf "%s\n" "$INDEX_HTML" > "site/${SLUG}/index.html"
-            sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
-                        # --------------------------------------------
-            # Compile with overrides (per-slug preferred)
-            # --------------------------------------------
+            # Pick overrides: per-slug first, else global
             OVR_FILE=""
             if [ -f "automation/overrides-${SLUG}.json" ]; then
               OVR_FILE="automation/overrides-${SLUG}.json"
@@ -168,10 +89,10 @@ jobs:
               OVR_FILE="automation/overrides.json"
             fi
 
-            echo "OVERRIDES for ${SLUG}: ${OVR_FILE:-none}"
-            [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
+            echo "::group::Compile ${SLUG}"
+            echo "URL: ${URL:-<missing>}"
+            echo "OVERRIDES: ${OVR_FILE:-none}"
 
-            # Run the builder; it downloads FEED_URL itself and applies OVERRIDES if provided
             if [ -n "${OVR_FILE}" ]; then
               FEED_SLUG="${SLUG}" \
               FEED_URL="${URL:-}" \
@@ -179,41 +100,52 @@ jobs:
               OUT_ZIP="compiled.zip" \
               OUT_REPORT="report.json" \
               OVERRIDES="${OVR_FILE}" \
-              node automation/rebuild-gtfs.js
+              node automation/rebuild-gtfs.js || any_fail=1
             else
               FEED_SLUG="${SLUG}" \
               FEED_URL="${URL:-}" \
               OUT_DIR="site/${SLUG}" \
               OUT_ZIP="compiled.zip" \
               OUT_REPORT="report.json" \
-              node automation/rebuild-gtfs.js
+              node automation/rebuild-gtfs.js || any_fail=1
             fi
+            echo "::endgroup::"
 
-            # Surface compiled artefacts on the per-feed page
-            if [ -f "site/${SLUG}/compiled.zip" ]; then
-              {
-                echo ""
-                echo "<h2>Compiled output</h2>"
-                echo "<ul>"
-                echo "  <li><a href=\"compiled.zip\">compiled.zip</a></li>"
-                echo "  <li><a href=\"report.json\">report.json</a></li>"
-                echo "</ul>"
-                echo "<script>"
-                echo "  (async()=>{try{const r=await fetch('report.json',{cache:'no-store'});if(!r.ok)return;const rep=await r.json();"
-                echo "    const p=document.createElement('p'); p.innerHTML='Overrides total: <b>'+(rep.overrides?.total??0)"
-                echo "      +'</b> · source: <code>'+(rep.overridesSource||'')+'</code>'; document.body.appendChild(p); }catch{}})();"
-                echo "</script>"
-              } >> "site/${SLUG}/index.html"
+            # Minimal per-feed page (only compiled artefacts)
+            cat > "site/${SLUG}/index.html" <<'EOF'
+            <!doctype html><meta charset="utf-8">
+            <title>{{TITLE}}</title>
+            <h1>{{TITLE}}</h1>
+            <ul>
+              <li><a href="compiled.zip">compiled.zip</a></li>
+              <li><a href="report.json">report.json</a></li>
+            </ul>
+            <p>Last updated: <span id="ts"></span></p>
+            <script>document.getElementById('ts').textContent = new Date().toISOString();</script>
+            <script>
+            (async()=>{
+              try {
+                const r = await fetch('report.json',{cache:'no-store'});
+                if (!r.ok) return;
+                const rep = await r.json();
+                const p=document.createElement('p');
+                p.innerHTML='Overrides total: <b>'+(rep.overrides?.total??0)
+                  +'</b> · source: <code>'+(rep.overridesSource||'')+'</code>';
+                document.body.appendChild(p);
+              } catch {}
+            })();
+            </script>
+            EOF
+            sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
+            done < feeds.tsv
+
+            echo "Built tree under site/:"
+            find site -maxdepth 2 -type f -printf "%p (%k KB)\n" | sort
+
+            if [ "$any_fail" -ne 0 ]; then
+              echo "One or more feeds failed to compile. See logs."
+              exit 1
             fi
-          done < feeds.tsv
-
-          echo "Built tree under site/:"
-          find site -maxdepth 2 -type f -printf "%p (%k KB)\n" | sort
-
-          if [ "$any_fail" -ne 0 ]; then
-            echo "One or more feeds failed to download/validate. See per-feed pages (headers.txt, error.html) and logs."
-            exit 1
-          fi
          
       - name: Generate registry.json (what’s built)
         shell: bash
