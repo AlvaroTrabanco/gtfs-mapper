@@ -240,27 +240,29 @@
       const txt = lastJsonText || await file.text();
       const parsed = JSON.parse(txt);
       const normalized = normalizeOverridesForSlug(parsed, slug);
+
       const targetChoice = document.querySelector('input[name="ovTarget"]:checked')?.value || "perSlug";
-      let targetPath;
 
       if (targetChoice === "global") {
-        targetPath = "gtfs-mapper/automation/overrides.json";
         const payload = await upsertGlobalOverride({
           key,
           slug,
           body: normalized[slug] || {},
           msg
         });
-        uiMessage(`Uploaded into <code>${targetPath}</code> for <code>${slug}</code>. Commit: <code>${payload.commit || "OK"}</code>`, "#065f46");
+        uiMessage(`Uploaded into <code>gtfs-mapper/automation/overrides.json</code> for <code>${slug}</code>. Commit: <code>${payload.commit || "OK"}</code>`, "#065f46");
       } else {
-        targetPath = `gtfs-mapper/automation/overrides-${slug}.json`;
+        const targetPath = `gtfs-mapper/automation/overrides-${slug}.json`;
+        const bodyOnly   = JSON.stringify(normalized[slug] || {}, null, 2); // <— BODY ONLY
+
         const payload = await callFn({
           key,
           op: "writeFile",
           path: targetPath,
-          content: JSON.stringify({ overrides: normalized }, null, 2),
+          content: bodyOnly,  // <— NO WRAPPER
           commitMessage: msg || `chore: update overrides-${slug}.json via admin`
         });
+
         uiMessage(`Uploaded per-slug file <code>${targetPath}</code>. Commit: <code>${payload.commit}</code>`, "#065f46");
       }
     } catch (err) {

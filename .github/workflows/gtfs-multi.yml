@@ -158,6 +158,53 @@ jobs:
             <script>document.getElementById("ts").textContent = new Date().toISOString();</script>'
             printf "%s\n" "$INDEX_HTML" > "site/${SLUG}/index.html"
             sed -i "s/{{TITLE}}/${SLUG//\//-} GTFS (compiled)/g" "site/${SLUG}/index.html"
+                        # --------------------------------------------
+            # Compile with overrides (per-slug preferred)
+            # --------------------------------------------
+            OVR_FILE=""
+            if [ -f "automation/overrides-${SLUG}.json" ]; then
+              OVR_FILE="automation/overrides-${SLUG}.json"
+            elif [ -f "automation/overrides.json" ]; then
+              OVR_FILE="automation/overrides.json"
+            fi
+
+            echo "OVERRIDES for ${SLUG}: ${OVR_FILE:-none}"
+            [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
+
+            # Run the builder; it downloads FEED_URL itself and applies OVERRIDES if provided
+            if [ -n "${OVR_FILE}" ]; then
+              FEED_SLUG="${SLUG}" \
+              FEED_URL="${URL:-}" \
+              OUT_DIR="site/${SLUG}" \
+              OUT_ZIP="compiled.zip" \
+              OUT_REPORT="report.json" \
+              OVERRIDES="${OVR_FILE}" \
+              node automation/rebuild-gtfs.js
+            else
+              FEED_SLUG="${SLUG}" \
+              FEED_URL="${URL:-}" \
+              OUT_DIR="site/${SLUG}" \
+              OUT_ZIP="compiled.zip" \
+              OUT_REPORT="report.json" \
+              node automation/rebuild-gtfs.js
+            fi
+
+            # Surface compiled artefacts on the per-feed page
+            if [ -f "site/${SLUG}/compiled.zip" ]; then
+              {
+                echo ""
+                echo "<h2>Compiled output</h2>"
+                echo "<ul>"
+                echo "  <li><a href=\"compiled.zip\">compiled.zip</a></li>"
+                echo "  <li><a href=\"report.json\">report.json</a></li>"
+                echo "</ul>"
+                echo "<script>"
+                echo "  (async()=>{try{const r=await fetch('report.json',{cache:'no-store'});if(!r.ok)return;const rep=await r.json();"
+                echo "    const p=document.createElement('p'); p.innerHTML='Overrides total: <b>'+(rep.overrides?.total??0)"
+                echo "      +'</b> · source: <code>'+(rep.overridesSource||'')+'</code>'; document.body.appendChild(p); }catch{}})();"
+                echo "</script>"
+              } >> "site/${SLUG}/index.html"
+            fi
           done < feeds.tsv
 
           echo "Built tree under site/:"
