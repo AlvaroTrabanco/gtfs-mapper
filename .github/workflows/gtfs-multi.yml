@@ -3,7 +3,15 @@ name: Build & Deploy GTFS Mapper
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+    paths:
+      - ".github/workflows/gtfs-multi.yml"
+      - "gtfs-mapper/automation/feeds.json"
+      - "gtfs-mapper/automation/overrides.json"
+      - "gtfs-mapper/automation/overrides-*.json"   # per-slug overrides (e.g., overrides-flixbus.json)
+      - "gtfs-mapper/automation/rebuild-*.js"       # any builder variants you add
+  workflow_dispatch: {}
+  schedule:
+    - cron: "15 4 * * *"    # daily at 04:15 UTC
 
 permissions:
   contents: read
