@@ -1,20 +1,64 @@
 {
   "version": 1,
   "rules": {
-    "3372992033::ACW": {
-      "mode": "pickup"
-    },
-    "3372992033::EAS": {
-      "mode": "pickup"
-    },
-    "3372992033::ZFQ": {
+    "855856537::XBC": {
       "mode": "custom",
       "dropoffOnlyFrom": [
-        "MDS",
-        "ACW"
+        "XRF",
+        "XMT",
+        "PGF"
       ],
       "pickupOnlyTo": [
-        "XPB"
+        "ALE",
+        "STB"
+      ]
+    },
+    "855856537::ACX": {
+      "mode": "custom",
+      "dropoffOnlyFrom": [
+        "XRF",
+        "XMT",
+        "PGF"
+      ],
+      "pickupOnlyTo": [
+        "ALE",
+        "STB"
+      ]
+    },
+    "855856537::ACW": {
+      "mode": "custom",
+      "dropoffOnlyFrom": [
+        "XRF",
+        "XMT",
+        "PGF"
+      ],
+      "pickupOnlyTo": [
+        "ALE",
+        "STB"
+      ]
+    },
+    "855856537::MDS": {
+      "mode": "custom",
+      "dropoffOnlyFrom": [
+        "XRF",
+        "XMT",
+        "PGF"
+      ],
+      "pickupOnlyTo": [
+        "ALE",
+        "STB"
+      ]
+    },
+    "855856537::ACC": {
+      "mode": "custom",
+      "dropoffOnlyFrom": [
+        "XRF",
+        "XMT",
+        "PGF"
+      ],
+      "pickupOnlyTo": [
+        "STB",
+        "ALE"
       ]
     }
   }
