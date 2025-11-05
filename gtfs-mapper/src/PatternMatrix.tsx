@@ -101,6 +101,14 @@ type PatternMatrixProps = {
   stopTimes: StopTime[];
   selectedRouteId?: string | null;
 
+  /** Optional: delete selected trips (parent mutation). If omitted, we hide them locally. */
+  onDeleteTrips?: (tripIds: string[]) => void;
+
+  /** Optional: bulk shift times for selected trips (parent mutation). 
+   * offsetSeconds can be negative. 
+   */
+  onShiftTripTimes?: (tripIds: string[], offsetSeconds: number) => void;
+
   initialRestrictions?: RestrictionsMap;
   onRestrictionsChange?: (next: RestrictionsMap) => void;
 
@@ -133,6 +141,69 @@ function hhmmOnly(s: string) {
   if (!m) return s;
   return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
+
+/** 
+ * Parse offsets like:
+ *  "+01:00", "-00:30", "1:0", "1:00" (HH:MM[:SS])
+ *  "+1.0", "-1.00" (dot form ONLY if the fractional part is 0 or 00 → whole hours)
+ * Returns seconds (may be negative). Null on invalid.
+ */
+/**
+ * Parse offsets like:
+ *  "+01:00", "-00:30", "1:0", "1:00", "01:30" (colon form)
+ *  "1.30", "1.15", "1.0", "1.00" (dot treated as time separator for minutes; optional seconds supported)
+ *  "+1", "-2" (plain hours)
+ * Rules:
+ *  - With dot, the part(s) after the first dot are minutes (and optional seconds): 1.5 → 01:05, 1.30 → 01:30
+ *  - Minutes/seconds must be 0–59.
+ * Returns seconds (may be negative). Null on invalid.
+ */
+function parseOffsetToSeconds(s: string): number | null {
+  if (!s) return null;
+  const trimmed = s.trim();
+  const m = trimmed.match(/^([+-])?\s*(\d+)(?:([:.])(\d{1,2})(?:(?:\3)(\d{1,2}))?)?$/);
+  // groups: 1=sign, 2=hours, 3=sep(: or .), 4=minutes, 5=seconds
+  if (!m) return null;
+
+  const sign = m[1] === "-" ? -1 : 1;
+  const H = parseInt(m[2], 10);
+  const sep = m[3];         // ":" or "." or undefined
+  let M = 0;
+  let S = 0;
+
+  if (sep) {
+    M = parseInt(m[4], 10);
+    if (isNaN(M) || M > 59) return null;
+
+    if (m[5] != null) {
+      S = parseInt(m[5], 10);
+      if (isNaN(S) || S > 59) return null;
+    }
+  }
+  // if no separator, it’s just hours
+  return sign * (H * 3600 + M * 60 + S);
+}
+
+/** Shift a GTFS-style HH:MM[:SS] string by offsetSeconds. Supports hours >= 24 (kept as is). */
+function shiftTime(hms: string, offsetSeconds: number): string {
+  if (!hms) return hms;
+  const m = hms.match(/^(\d{1,})(?::([0-5]\d))(?:\:([0-5]\d))?$/);
+  if (!m) return hms;
+  const H = parseInt(m[1], 10);
+  const M = parseInt(m[2], 10);
+  const S = m[3] ? parseInt(m[3], 10) : 0;
+  let total = H * 3600 + M * 60 + S + offsetSeconds;
+  // Allow negative to clamp at 0 if you prefer; here we keep floor at 0 to avoid "-01:00".
+  if (total < 0) total = 0;
+  const newH = Math.floor(total / 3600);
+  const rem = total % 3600;
+  const newM = Math.floor(rem / 60);
+  const newS = rem % 60;
+  // Keep seconds only if they existed originally
+  const base = `${String(newH)}:${String(newM).padStart(2, "0")}`;
+  return m[3] ? `${base}:${String(newS).padStart(2, "0")}` : base;
+}
+
 function daysString(svc?: Service) {
   if (!svc) return "";
   const f = [svc.monday, svc.tuesday, svc.wednesday, svc.thursday, svc.friday, svc.saturday, svc.sunday].map(Boolean);
@@ -540,14 +611,33 @@ function StopBulkRuleEditor({
 /* ---------------- Main component ---------------- */
 export default function PatternMatrix({
   stops, services, trips, stopTimes, selectedRouteId,
+  onDeleteTrips,
+  onShiftTripTimes,
   initialRestrictions, onRestrictionsChange,
   initialStopDefaults, onStopDefaultsChange,
   onEditTime,
 }: PatternMatrixProps) {
+    // --- Selection & bulk-shift state (must be before tripsFiltered) ---
+  const [selectedTripIds, setSelectedTripIds] = useState<Set<string>>(new Set());
+  const [hiddenTripIds, setHiddenTripIds] = useState<Set<string>>(new Set());
+  const [shiftInput, setShiftInput] = useState<string>("");
+
+  const isTripSelected = (id: string) => selectedTripIds.has(id);
+  const toggleTripSelected = (id: string, checked: boolean) => {
+    setSelectedTripIds(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
   /* ---------- Base indexing ---------- */
   const tripsFiltered = useMemo(
-    () => selectedRouteId ? trips.filter(t => t.route_id === selectedRouteId) : trips,
-    [trips, selectedRouteId]
+    () => {
+      const base = selectedRouteId ? trips.filter(t => t.route_id === selectedRouteId) : trips;
+      return base.filter(t => !hiddenTripIds.has(t.trip_id));
+    },
+    [trips, selectedRouteId, hiddenTripIds]
   );
 
   // one anchor for the cell editor
@@ -629,6 +719,30 @@ export default function PatternMatrix({
 
   /* ---------- Shared state ---------- */
   const [localTimes, setLocalTimes] = useState<Record<string, string>>({});
+  // --- Local-undo support (one-step undo for Summary actions) ---
+  // --- Local Undo / Redo (two-step stack) ---
+type UndoSnapshot = {
+  localTimes: Record<string, string>;
+  hiddenTripIds: string[];
+  selectedTripIds: string[];
+};
+
+// Back/forward stacks
+const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
+const [redoStack, setRedoStack] = useState<UndoSnapshot[]>([]);
+
+// helper to capture a snapshot before mutating
+function pushUndo() {
+  setUndoStack(prev => [
+    ...prev.slice(-9), // cap to 10
+    {
+      localTimes: { ...localTimes },
+      hiddenTripIds: Array.from(hiddenTripIds),
+      selectedTripIds: Array.from(selectedTripIds),
+    },
+  ]);
+  setRedoStack([]); // clear redo whenever new action occurs
+}
   const getUiTime = (trip_id: string, stop_id: string, fallback: string) =>
     localTimes[keyTS(trip_id, stop_id)] ?? fallback;
 
@@ -654,6 +768,127 @@ useEffect(() => {
     sentDefaultsRef.current = snapshot;
   }
 }, [stopDefaults, onStopDefaultsChange]);
+
+  // --- Bulk actions (delete / shift) ---
+  const deleteSelectedTrips = () => {
+    const ids = Array.from(selectedTripIds);
+    if (ids.length === 0) return;
+
+    // Snapshot current local state BEFORE changing anything (for undo)
+    pushUndo();
+
+    if (onDeleteTrips) {
+      // NOTE: This triggers parent-level mutation; local undo only restores local state.
+      // For full app-wide undo, prefer wiring this through App's history system.
+      onDeleteTrips(ids);
+    } else {
+      // Local hide fallback
+      setHiddenTripIds(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.add(id));
+        return next;
+      });
+    }
+
+    // Clear selection (post-op)
+    setSelectedTripIds(new Set());
+  };
+
+  const shiftSelectedTrips = () => {
+    const ids = Array.from(selectedTripIds);
+    if (ids.length === 0) return;
+
+    const secs = parseOffsetToSeconds(shiftInput);
+    if (secs === null) {
+      alert("Invalid offset. Use formats like +01:00, -00:30, or 01:15.");
+      return;
+    }
+
+    // Snapshot current local state BEFORE changing anything (for undo)
+    pushUndo();
+
+    if (onShiftTripTimes) {
+      // NOTE: Parent-level mutation; local undo won’t revert parent state.
+      onShiftTripTimes(ids, secs);
+    } else {
+      // Local shift fallback: update localTimes overlay for every stop_time in these trips
+      const idSet = new Set(ids);
+      const next: Record<string, string> = {};
+      for (const st of stopTimes) {
+        if (!idSet.has(st.trip_id)) continue;
+        const base = st.departure_time || st.arrival_time || "";
+        if (!base) continue;
+        const shifted = shiftTime(base, secs);
+        next[keyTS(st.trip_id, st.stop_id)] = hhmmOnly(shifted);
+      }
+      setLocalTimes(prev => ({ ...prev, ...next }));
+    }
+  };
+
+// -------- Undo / Redo handlers --------
+function handleUndo() {
+  setUndoStack(prev => (
+    (() => {
+      if (!prev.length) return prev;
+      const last = prev[prev.length - 1];
+      setRedoStack(r => [
+        ...r.slice(-9),
+        {
+          localTimes: { ...localTimes },
+          hiddenTripIds: Array.from(hiddenTripIds),
+          selectedTripIds: Array.from(selectedTripIds),
+        },
+      ]);
+      setLocalTimes(last.localTimes);
+      setHiddenTripIds(new Set(last.hiddenTripIds));
+      setSelectedTripIds(new Set(last.selectedTripIds));
+      return prev.slice(0, -1);
+    })()
+  ));
+}
+
+function handleRedo() {
+  setRedoStack(prev => (
+    (() => {
+      if (!prev.length) return prev;
+      const last = prev[prev.length - 1];
+      setUndoStack(u => [
+        ...u.slice(-9),
+        {
+          localTimes: { ...localTimes },
+          hiddenTripIds: Array.from(hiddenTripIds),
+          selectedTripIds: Array.from(selectedTripIds),
+        },
+      ]);
+      setLocalTimes(last.localTimes);
+      setHiddenTripIds(new Set(last.hiddenTripIds));
+      setSelectedTripIds(new Set(last.selectedTripIds));
+      return prev.slice(0, -1);
+    })()
+  ));
+}
+
+// --- Keyboard shortcuts ---
+useEffect(() => {
+  const onKey = (e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+    const isTyping =
+      tag === "input" || tag === "textarea" ||
+      (e.target as HTMLElement | null)?.getAttribute("contenteditable") === "true";
+
+    if (isTyping) return;
+
+    const z = e.key.toLowerCase() === "z";
+    if ((e.metaKey || e.ctrlKey) && z) {
+      e.preventDefault();
+      if (e.shiftKey) handleRedo(); // Cmd/Ctrl + Shift + Z
+      else handleUndo();            // Cmd/Ctrl + Z
+    }
+  };
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+}, [undoStack, redoStack]);
+
 
 
   const [openCellKey, setOpenCellKey] = useState<string | null>(null);
@@ -729,7 +964,17 @@ useEffect(() => {
     const applyBulkToStop = makeApplyBulkToStop(g.trips, groupTripStops);
 
     return (
-      <div key={`grp_${gi}`} className="card section" style={{ marginTop: gi === 0 ? 12 : 16 }}>
+      <div
+        key={`grp_${gi}`}
+        className="card section"
+        style={{
+          marginTop: gi === 0 ? 12 : 16,
+          borderColor: "#df007d",
+          borderWidth: 2,
+          borderStyle: "solid",
+          borderRadius: 12
+        }}
+      >
         <div className="card-body" style={{ overflow: "auto", position: "relative" }}>
           <div style={{ marginBottom: 6, display: "flex", alignItems: "baseline", gap: 8 }}>
             <h3 style={{ margin: 0 }}>Summary of selected route</h3>
@@ -741,13 +986,98 @@ useEffect(() => {
             </div>
           </div>
 
+                    {/* Group actions: select all, delete, shift */}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "8px 0" }}>
+            <SelectAllCheckbox
+              label="Select all trips in this pattern"
+              totalCount={g.trips.length}
+              selectedCount={g.trips.filter(t => selectedTripIds.has(t.trip_id)).length}
+              onToggle={(checked) => {
+                setSelectedTripIds(prev => {
+                  const next = new Set(prev);
+                  if (checked) g.trips.forEach(t => next.add(t.trip_id));
+                  else g.trips.forEach(t => next.delete(t.trip_id));
+                  return next;
+                });
+              }}
+            />
+
+            <button
+              onClick={handleUndo}
+              disabled={undoStack.length === 0}
+              style={{
+                fontSize: 12,
+                padding: "6px 10px",
+                border: "1px solid #ddd",
+                background: "#fff",
+                borderRadius: 6,
+                cursor: undoStack.length === 0 ? "not-allowed" : "pointer"
+              }}
+              title="Undo last shift/delete in Summary"
+            >
+              Undo
+            </button>
+
+            <button
+              onClick={handleRedo}
+              disabled={redoStack.length === 0}
+              style={{
+                fontSize: 12,
+                padding: "6px 10px",
+                border: "1px solid #ddd",
+                background: "#fff",
+                borderRadius: 6,
+                cursor: redoStack.length === 0 ? "not-allowed" : "pointer"
+              }}
+              title="Redo last shift/delete in Summary (or Cmd/Ctrl+Shift+Z)"
+            >
+              Redo
+            </button>
+
+            <button
+              onClick={deleteSelectedTrips}
+              disabled={selectedTripIds.size === 0}
+              style={{ fontSize: 12, padding: "6px 10px", border: "1px solid #ddd", background: "#fff", borderRadius: 6, cursor: selectedTripIds.size ? "pointer" : "not-allowed" }}
+              title="Delete selected trips (columns)"
+            >
+              Delete selected trips
+            </button>
+
+            <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#555" }}>Shift service</span>
+              <input
+                value={shiftInput}
+                onChange={(e) => setShiftInput(e.target.value)}
+                placeholder="+01:00 / -00:30 / 1.30 / 1.15"
+                style={{ width: 100, fontVariantNumeric: "tabular-nums" }}
+              />
+              <button
+                onClick={shiftSelectedTrips}
+                disabled={selectedTripIds.size === 0 || !shiftInput.trim()}
+                style={{ fontSize: 12, padding: "6px 10px", border: "1px solid #ddd", background: "#fff", borderRadius: 6, cursor: (selectedTripIds.size && shiftInput.trim()) ? "pointer" : "not-allowed" }}
+                title="Apply shift to selected trips"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
                 <th style={{ width: 260, textAlign: "left", padding: 8, borderBottom: "1px solid #eee" }}>Stop</th>
                 {g.trips.map((t) => (
                   <th key={t.trip_id} style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee", minWidth: 180 }}>
-                    {headerFor(t)}
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={isTripSelected(t.trip_id)}
+                        onChange={(e) => toggleTripSelected(t.trip_id, e.target.checked)}
+                        title="Select this trip"
+                        style={{ marginTop: 2 }}
+                      />
+                      {headerFor(t)}
+                    </div>
                   </th>
                 ))}
               </tr>
@@ -900,7 +1230,15 @@ useEffect(() => {
                       const pickTo = restrictions[k]?.pickupOnlyTo ?? [];
 
                       return (
-                        <td key={t.trip_id} style={{ padding: 8, borderBottom: "1px solid #f2f2f2", position: "relative" }}>
+                        <td
+                          key={t.trip_id}
+                          style={{
+                            padding: 8,
+                            borderBottom: "1px solid #f2f2f2",
+                            position: "relative",
+                            background: selectedTripIds.has(t.trip_id) ? "#fafcff" : "#fff"
+                          }}
+                        >
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <input
                               value={ui}

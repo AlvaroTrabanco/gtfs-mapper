@@ -38,8 +38,8 @@ function throttle<T extends (...args: any[]) => void>(fn: T, wait = 150) {
 
 /** ---------- Misc ---------- */
 const defaultTZ: string = String(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid");
-const MIN_ADD_ZOOM = 11;
-const MIN_STOP_ZOOM = 6;
+const MIN_ADD_ZOOM = 0;
+const MIN_STOP_ZOOM = 0;
 const MIN_ROUTE_ZOOM = 0;      // ← NEW: don’t draw route lines when zoomed way out
 const MAX_ROUTE_POINTS = 2000; // ← NEW: cap points per polyline drawn to the screen
 const DIM_ROUTE_COLOR = "#2b2b2b";
@@ -1225,6 +1225,10 @@ export default function App() {
 
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set()); // NEW multi-select
+
+  // True if there's either a single selection or any multi-selection
+  const hasSelection = selectedRouteId !== null || selectedRouteIds.size > 0;
+
   // Robustly pick an "active" route if selection looks empty
   function resolveActiveRouteId(): string | null {
     if (selectedRouteId) return selectedRouteId;
@@ -1463,10 +1467,42 @@ const visibleRouteIds = useMemo<string[]>(() => {
   mapZoom
 ]);
 
-  useEffect(() => {
-    // throttle → state
-    if (canDrawRoutes) pushVisibleRoutes(visibleRouteIds);
-  }, [visibleRouteIds, pushVisibleRoutes]);
+
+
+// ⬇️ Immediate response to the "Show routes" toggle (bypass throttle)
+useEffect(() => {
+  if (showRoutes) {
+    // ensure the gate is open and push current IDs to screen now
+    setCanDrawRoutes(true);
+    setVisibleRoutesThrottled(visibleRouteIds);
+  } else {
+    // hide immediately
+    setVisibleRoutesThrottled([]);
+  }
+  // We only care about reacting to the toggle itself.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [showRoutes]);
+
+
+// ⬇️ Immediate response to the "Show routes" toggle (bypass throttle)
+useEffect(() => {
+  if (showRoutes) {
+    // ensure the gate is open and push current IDs to screen now
+    setCanDrawRoutes(true);
+    setVisibleRoutesThrottled(visibleRouteIds);
+  } else {
+    // hide immediately
+    setVisibleRoutesThrottled([]);
+  }
+  // We only care about reacting to the toggle itself.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [showRoutes]);
+
+
+useEffect(() => {
+  // throttle → state
+  if (canDrawRoutes) pushVisibleRoutes(visibleRouteIds);
+}, [visibleRouteIds, pushVisibleRoutes]);
 
 
   // Stable callback so MapStateTracker's effect doesn't re-run forever
@@ -1480,7 +1516,7 @@ const visibleRouteIds = useMemo<string[]>(() => {
     setMapZoom(prev => (prev === z ? prev : z));
     setMapBounds(prev => (prev && prev.equals(b) ? prev : b));
     setMapCenter(prev => (prev && prev.equals(c) ? prev : c));
-    setMapBoundsKey(boundsKey(b));          // ← NEW
+    setMapBoundsKey(boundsKey(b));          // ← make sure this line exists
   }, []);
 
   // ---- Auto-rebuild shape debounce (USED WHEN MOVING A STOP) ----
@@ -2961,6 +2997,12 @@ const addStopTimeRow = () => {
     }
   }, [routes, selectedRouteId]);
 
+  // When selection is cleared (no single or multi), also clear any preview layer
+  useEffect(() => {
+    const empty = !selectedRouteId && (!selectedRouteIds || selectedRouteIds.size === 0);
+    if (empty) clearTempRouteLayer();
+  }, [selectedRouteId, selectedRouteIds]);
+
   // If selected stop no longer exists, clear it
   useEffect(() => {
     if (selectedStopId && !stops.some(s => s.stop_id === selectedStopId)) {
@@ -3706,6 +3748,24 @@ function getOrderedStopsForSelectedRoute(): { shapeId: string; coords: [number, 
   return { shapeId: existingShapeId, coords };
 }
 
+
+
+// Helper: clear any temporary route preview layer we created during shape building
+function clearTempRouteLayer() {
+  try {
+    const win: any = window as any;
+    const map = mapRef.current;
+    if (win && win.__gtfsTempLayer) {
+      win.__gtfsTempLayer.clearLayers?.();
+      if (map && map.hasLayer && map.hasLayer(win.__gtfsTempLayer)) {
+        map.removeLayer(win.__gtfsTempLayer);
+      }
+      win.__gtfsTempLayer = null;
+    }
+  } catch {}
+}
+
+
 // Write shape points and assign shape_id to all trips in the selected route
 function commitShapeToSelectedRoute(routeId: string, shapeId: string, path: [number, number][]) {
   // 1) ensure trips in route point to this shape
@@ -4002,6 +4062,13 @@ useEffect(() => {
   return () => window.clearTimeout(h);
 }, [selectedRouteId, selectedRouteIds, trips, shapePts, showRoutes]);
 
+// Automatically enable "Show Stops" when a route becomes selected
+useEffect(() => {
+  if (selectedRouteId || selectedRouteIds.size > 0) {
+    setShowStops(true);
+  }
+}, [selectedRouteId, selectedRouteIds]);
+
 function MapInteractionBusy({ onChange }: { onChange: (busy: boolean) => void }) {
   const map = useMap();
   const timeoutRef = useRef<number | null>(null);
@@ -4130,11 +4197,11 @@ function StopsLayer({
     return L.circleMarker(latlng, {
       radius: selected ? 10 : 6,
       weight: selected ? 3 : 1.5,
-      color: selected ? "#df007c" : "#222",
+      color: selected ? "#df007c" : "#111",  // darker outline
       fillColor: selected ? "#fff" : "#fafafa",
       fillOpacity: 1,
       interactive: true,
-      pane: "stopsTop",
+      pane: "stopsTop",  
     });
   }, []);
 
@@ -4314,14 +4381,28 @@ useEffect(() => {
               onChange={e => {
                 const next = e.target.checked;
                 setShowRoutes(next);
-                if (!next) {
-                  // Hide = clear any selection so nothing “becomes selected”
+
+                if (next) {
+                  setCanDrawRoutes(true);
+                } else {
                   setSelectedRouteId(null);
                   setSelectedRouteIds(new Set());
+                  setVisibleRoutesThrottled([]); // instant hide
+                  routeGeomCacheRef.current.clear(); // drop cached styling
+                  clearTempRouteLayer();             // ← ensure this call is present
                 }
               }}
             />
             Show routes
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={showStops}
+              onChange={e => setShowStops(e.target.checked)}
+            />
+            Show stops
           </label>
 
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -4391,7 +4472,14 @@ useEffect(() => {
             </div>
           )}
 
-          <button className="btn" onClick={() => { setSelectedRouteId(null); setSelectedRouteIds(new Set()); setSelectedStopId(null); setActiveServiceIds(new Set()); setClearSignal(x => x + 1); }}>
+          <button className="btn" onClick={() => {
+            setSelectedRouteId(null);
+            setSelectedRouteIds(new Set());
+            setSelectedStopId(null);
+            setActiveServiceIds(new Set());
+            setClearSignal(x => x + 1);
+            clearTempRouteLayer();   // ← NEW
+          }}>
             Deselect route
           </button>
 
@@ -4500,7 +4588,16 @@ useEffect(() => {
               Zoom in to at least ${MIN_ADD_ZOOM} to add stops by clicking on the map and see the route paths.
             </span>
           )}
-          <div className={`map-shell ${selectedRouteId ? "bw" : ""}`} style={{ height: 400, width: "100%", borderRadius: 12, overflow: "hidden", position: "relative" }}>
+          <div
+            className={`map-shell ${showRoutes && hasSelection ? "bw" : ""}`}
+            style={{
+              height: 400,
+              width: "100%",
+              borderRadius: 12,
+              overflow: "hidden",
+              position: "relative"
+            }}
+          >
             {isBusy && (
               <div
                 style={{
@@ -4580,7 +4677,7 @@ useEffect(() => {
               <Pane name="routeHalo"  style={{ zIndex: 680 }} />
               <Pane name="routeLines" style={{ zIndex: 690 }} />
               <Pane name="routeHits"  style={{ zIndex: 700 }} />
-              <Pane name="stopsTop"   style={{ zIndex: 650 }} />
+              <Pane name="stopsTop"   style={{ zIndex: 710 }} /> {/* ↑ moved above routes */}
 
              
 
@@ -4609,7 +4706,7 @@ useEffect(() => {
 
 
               {/* Route polylines (from cache) */}
-              {(visibleRoutesThrottled.length ? visibleRoutesThrottled : visibleRouteIds)
+              {showRoutes && (visibleRoutesThrottled.length ? visibleRoutesThrottled : visibleRouteIds)
                 .filter((route_id) => {
                   if (!isScopedView) return true;
                   if (selectedRouteIds.size) return selectedRouteIds.has(route_id);
@@ -4617,10 +4714,9 @@ useEffect(() => {
                 })
                 .map((route_id) => {
                   const geom = getRouteGeom(route_id);
-                  if (mapZoom < MIN_ROUTE_ZOOM) return null;
                   if (!geom) return null;
-                  const coords = geom.coords;
 
+                  const coords = geom.coords;
                   const isSel  = selectedRouteId === route_id || selectedRouteIds.has(route_id);
                   const hasSel = !!selectedRouteId || selectedRouteIds.size > 0;
                   const color  = hasSel ? (isSel ? routeColor(route_id) : DIM_ROUTE_COLOR) : routeColor(route_id);
@@ -4642,7 +4738,12 @@ useEffect(() => {
                         positions={coords as any}
                         pane="routeHits"
                         smoothFactor={2}
-                        pathOptions={{ color: "rgba(0,0,0,0.01)", opacity: 0.01, weight: Math.max(16, weight + 12), interactive: true }}
+                        pathOptions={{
+                          color: "rgba(0,0,0,0.01)",
+                          opacity: 0.01,
+                          weight: Math.max(16, weight + 12),
+                          interactive: true,
+                        }}
                         bubblingMouseEvents={false}
                         eventHandlers={{ click: onRouteClick }}
                       />
@@ -4652,14 +4753,25 @@ useEffect(() => {
                           pane="routeHalo"
                           smoothFactor={2}
                           className="route-halo-pulse"
-                          pathOptions={{ color: "#ffffff", weight: 10, opacity: 0.9, lineCap: "round", interactive: false }}
+                          pathOptions={{
+                            color: "#ffffff",
+                            weight: 10,
+                            opacity: 0.9,
+                            lineCap: "round",
+                            interactive: false,
+                          }}
                         />
                       )}
                       <Polyline
                         positions={coords as any}
                         pane="routeLines"
                         smoothFactor={2}
-                        pathOptions={{ color, weight, opacity, interactive: true }}
+                        pathOptions={{
+                          color,
+                          weight,
+                          opacity,
+                          interactive: true,
+                        }}
                         bubblingMouseEvents={false}
                         eventHandlers={{ click: onRouteClick }}
                       />
