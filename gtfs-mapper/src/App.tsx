@@ -1100,9 +1100,6 @@ export default function App() {
     return m;
   }, [shapePts]);
 
-  // ---- Route geometry cache (per-route, lazy) ----
-  const routeGeomCacheRef = useRef<Map<string, RouteGeom>>(new Map());
-
   const coordsForRoute = useCallback((routeId: string): LatLng[] | null => {
     // 1) try shapes first (longest shape across the route's trips)
     const rTrips = trips.filter(t => t.route_id === routeId);
@@ -1138,43 +1135,14 @@ export default function App() {
     return fallback;
   }, [trips, shapesById, stopsById, stopTimes]);
 
-  // --- Soft throttling for huge feeds ---
-  let _geomBudget = 400; // number of routes allowed to compute per frame
-
   const getRouteGeom = useCallback((routeId: string): RouteGeom | null => {
-    const cache = routeGeomCacheRef.current;
-    const cached = cache.get(routeId);
-    if (cached) return cached;
-
-    // Soft throttle: if we’ve computed a lot this tick, defer
-    if (_geomBudget <= 0) return null;
-    _geomBudget--;
-
     const coords = coordsForRoute(routeId);
     if (!coords || coords.length < 2) return null;
-
     const slim = decimate(coords, MAX_ROUTE_POINTS);
-    const geom: RouteGeom = { coords: slim, bbox: bboxOf(slim) };
-    cache.set(routeId, geom);
-    return geom;
+    return { coords: slim, bbox: bboxOf(slim) };
   }, [coordsForRoute]);
 
-  // Reset budget every tick (0ms interval → each JS task)
-  useEffect(() => {
-    const id = setInterval(() => { _geomBudget = 400; }, 0);
-    return () => clearInterval(id);
-  }, []);
-
-  // targeted invalidations
-  useEffect(() => {
-    // shapes changed → most likely geometry changed; clear cache
-    routeGeomCacheRef.current.clear();
-  }, [shapePts]);
-
-  useEffect(() => {
-    // stops or trips changed materially → clear cache
-    routeGeomCacheRef.current.clear();
-  }, [stops, trips]);
+  
 
 
   /** UI */
@@ -1394,9 +1362,9 @@ export default function App() {
     const hasSelection =
       !!selectedRouteId || (selectedRouteIds && selectedRouteIds.size > 0);
 
-    if (routes.length > 1200 && !hasSelection) {
-      return []; // draw nothing until user selects a route
-    }
+    // if (routes.length > 1200 && !hasSelection) {
+    //   return []; // draw nothing until user selects a route
+    // }
 
     // fast path: if scoping and we have a selection, just draw the selection
     if (isScopedView) {
@@ -1418,7 +1386,6 @@ export default function App() {
     routes, getRouteGeom
   ]);
 
-  // Stable callback so MapStateTracker's effect doesn't re-run forever
   // Stable callback so MapStateTracker's effect doesn't re-run forever
   const [mapCenter, setMapCenter] = useState<L.LatLng | null>(null);
 
@@ -1518,6 +1485,8 @@ export default function App() {
   // Busy/lock UI while long ops run
   const [isBusy, setIsBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  // Shows the overlay while the user is panning/zooming and the map is rendering
+  const [isMapBusy, setIsMapBusy] = useState(false);
   const withBusy = async (label: string, fn: () => Promise<void> | void) => {
     if (isBusy) return;           // ignore re-entrancy
     setIsBusy(true);
@@ -2066,67 +2035,13 @@ const addStopTimeRow = () => {
   setTimeout(() => setBanner(null), 1200);
 };
 
+  // Don’t load anything from previous sessions
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const obj = JSON.parse(raw);
-
-        setAgencies(obj.agencies ?? []);
-        setStops((obj.stops ?? []).map((s: any) => ({ uid: s.uid || uuidv4(), ...s })));
-        setRoutes(obj.routes ?? []);
-        setServices(obj.services ?? []);
-        setTrips(
-          (obj.trips ?? []).map((t: any) => ({
-            ...t,
-            shape_id: t.shape_id && String(t.shape_id).trim() !== "" ? String(t.shape_id) : undefined,
-          }))
-        );
-        setStopTimes(obj.stopTimes ?? []);
-        setShapePts((obj.shapePts ?? []).map((p: any) => ({
-          shape_id: String(p.shape_id ?? ""),
-          lat: Number(p.lat ?? p.shape_pt_lat ?? 0),
-          lon: Number(p.lon ?? p.shape_pt_lon ?? 0),
-          seq: Number(p.seq ?? p.shape_pt_sequence ?? 0),
-        })));
-
-        // ⬇️ restore OD rules (supports old/new shapes of the saved object)
-        const savedRules =
-          obj.project?.extras?.restrictions ??
-          obj.extras?.restrictions ??
-          obj.restrictions ?? {};
-
-        const savedStopDefaults: StopDefaultsMap = normalizeSavedStopDefaults(
-          obj.project?.extras?.stopDefaults ??
-          obj.extras?.stopDefaults ??
-          obj.stopDefaults ?? // older saves, just in case
-          {}
-        );
-
-        // ✅ add this:
-        const savedShapeByRoute: ShapeByRoute =
-          obj.project?.extras?.shapeByRoute ??
-          obj.extras?.shapeByRoute ??
-          obj.shapeByRoute ??
-          {};
-
-        // keep: setProject(...), etc.
-        setProject((prev: any) => ({
-          ...(prev ?? {}),
-          extras: {
-            ...(prev?.extras ?? {}),
-            restrictions: savedRules,
-            stopDefaults: savedStopDefaults,
-            shapeByRoute: savedShapeByRoute,
-          },
-        }));
-      }
-    } catch {
-      /* ignore */
-    }
     setHydrated(true);
   }, []);
 
+
+  
 
   // Auto-fit to the current stops exactly once after data loads
   useEffect(() => {
@@ -2152,51 +2067,22 @@ const addStopTimeRow = () => {
     }
   }, [stops]);
 
+  // Disable all persistence — nothing saved to localStorage
   useEffect(() => {
-    if (!hydrated || suppressPersist.current) return;
+    // just set hydrated to true so the UI works normally
+    setHydrated(true);
 
-    // Clear any pending save
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-
-    // Debounce ~600ms after the latest change
-    saveTimer.current = window.setTimeout(() => {
-      try {
-        const snapshot = {
-          agencies,
-          stops,
-          routes,
-          services,
-          trips,
-          stopTimes,
-          shapePts,
-          project: {
-            extras: {
-              restrictions: project?.extras?.restrictions ?? {},
-              stopDefaults: project?.extras?.stopDefaults ?? {},
-              shapeByRoute: project?.extras?.shapeByRoute ?? {},
-            }
-          },
-        };
-        const json = JSON.stringify(snapshot);
-        if (json.length >= 5_000_000) {
-          console.warn("Skipping autosave: feed too large for localStorage");
-          return;
-        }
-        localStorage.setItem(STORAGE_KEY, json);
-      } catch (err) {
-        console.warn("LocalStorage save failed:", err);
-      }
-    }, 600) as unknown as number;
+    // Warn before the user refreshes or closes the tab
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Unsaved data will be lost. Export before closing.";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated,
-    agencies, stops, routes, services, trips, stopTimes, shapePts,
-    project?.extras?.restrictions,
-    project?.extras?.stopDefaults,
-    project?.extras?.shapeByRoute]);
+  }, []);
 
   /** Colors */
   function hashCode(str: string) { let h = 0; for (let i=0;i<str.length;i++) h = ((h<<5)-h) + str.charCodeAt(i) | 0; return h; }
@@ -2606,6 +2492,7 @@ const addStopTimeRow = () => {
         });
 
         setBanner({ kind: "success", text: "GTFS zip imported. Select a route to load its stop_times." });
+        setBanner({ kind: "info", text: "Feed loaded. Don’t close the tab until you export or save." });
         setTimeout(() => setBanner(null), 2400);
       } catch (e) {
         console.error(e);
@@ -2617,6 +2504,123 @@ const addStopTimeRow = () => {
           suppressCompute.current = false;
           suppressPersist.current = false;
         });
+
+        // --- AUTO-BUILD SHAPES FOR ALL ROUTES IF NO SHAPES WERE PROVIDED ---
+        try {
+          const hasShapes = (Array.isArray(shapePts) ? shapePts.length : 0) > 0;
+          if (!hasShapes && Array.isArray(routes) && Array.isArray(trips) && Array.isArray(stops) && Array.isArray(stopTimes)) {
+            console.log("[GTFS] No shapes present — auto-building straight-line shapes for each route…");
+
+            // Index stop_times by trip and sort by stop_sequence
+            const byTrip = new Map<string, any[]>();
+            for (const st of stopTimes as any[]) {
+              const tid = String(st.trip_id ?? "");
+              if (!tid) continue;
+              const arr = byTrip.get(tid) ?? [];
+              arr.push(st);
+              byTrip.set(tid, arr);
+            }
+            for (const [tid, arr] of byTrip) {
+              arr.sort((a, b) => Number(a.stop_sequence ?? 0) - Number(b.stop_sequence ?? 0));
+            }
+
+            // Helper to read lat/lon regardless of field naming
+            const readLat = (s: any) =>
+              Number(s.stop_lat ?? s.stop_latitude ?? s.lat ?? s.latitude ?? NaN);
+            const readLon = (s: any) =>
+              Number(s.stop_lon ?? s.stop_longitude ?? s.lon ?? s.longitude ?? NaN);
+
+            const newPts: any[] = [];
+            const usedIds = new Set<string>();
+
+            // Prepare a trips array we can safely update without mutating state in place
+            let tripsUpdated = trips.slice();
+
+            for (const r of routes as any[]) {
+              const rTrips = tripsUpdated.filter((t: any) => t.route_id === r.route_id);
+              if (!rTrips.length) continue;
+
+              // Use the first trip as representative for a simple straight polyline
+              const t0 = rTrips[0];
+              const rows = byTrip.get(String(t0.trip_id)) ?? [];
+              if (rows.length < 2) continue;
+
+              const coords: Array<{ lat: number; lon: number }> = [];
+              for (const row of rows) {
+                const s = (stops as any[]).find(ss => String(ss.stop_id) === String(row.stop_id));
+                if (!s) continue;
+                const lat = readLat(s);
+                const lon = readLon(s);
+                if (Number.isFinite(lat) && Number.isFinite(lon)) coords.push({ lat, lon });
+              }
+              if (coords.length < 2) continue;
+
+              const shape_id = `auto_${r.route_id}`;
+              usedIds.add(shape_id);
+
+              // Try to match your app's internal shape point schema.
+              // If your app expects GTFS-like fields, keep the second block instead (commented).
+              coords.forEach((c, i) => {
+                newPts.push({ shape_id, lat: c.lat, lon: c.lon, seq: i + 1 });
+              });
+
+              // // If your app expects GTFS field names, use this instead:
+              // coords.forEach((c, i) => {
+              //   newPts.push({
+              //     shape_id,
+              //     shape_pt_lat: c.lat,
+              //     shape_pt_lon: c.lon,
+              //     shape_pt_sequence: i + 1,
+              //   });
+              // });
+
+              // Assign shape_id to all trips of this route
+              tripsUpdated = tripsUpdated.map((t: any) =>
+                t.route_id === r.route_id ? { ...t, shape_id } : t
+              );
+            }
+            
+
+            if (newPts.length > 0) {
+              console.log(`[GTFS] Auto-built ${usedIds.size} shapes (${newPts.length} pts)`);
+              setShapePts(newPts as any);
+              setTrips?.(tripsUpdated as any);
+
+              // 👉 Automatically select a sample route so lines actually render
+              if (routes.length > 1200 && selectedRouteId === null && selectedRouteIds.size === 0) {
+                const firstRoute = routes[0]?.route_id;
+                if (firstRoute) {
+                  console.log(`[GTFS] Auto-selecting first route: ${firstRoute}`);
+                  setSelectedRouteId(firstRoute);
+                  setSelectedRouteIds(new Set([firstRoute]));
+                }
+              }
+
+              queueMicrotask(() => {
+                try {
+                  const map = mapRef.current;
+                  if (!map) return;
+                  map.fire("zoomend");
+                  map.fire("moveend");
+                  map.invalidateSize(false);
+
+                  const coords = newPts
+                    .map(p => [p.lat, p.lon] as [number, number])
+                    .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+
+                  if (coords.length) {
+                    const bounds = L.latLngBounds(coords as any);
+                    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 7, animate: false });
+                  }
+                } catch (err) {
+                  console.warn("[GTFS] fitBounds failed:", err);
+                }
+              });
+            }
+          }
+        } catch (e) {
+          console.warn("[GTFS] Auto-build fallback failed:", e);
+        }
         // Note: we left "Visualize stops" OFF after import for performance.
         // The user can toggle it back on from the toolbar when ready.
       }
@@ -3724,7 +3728,6 @@ function getOrderedStopsForRoute(
     return { shapeId: existingShapeId as string, coords };
   }
 
-/** Build shape automatically for selected route based on route_type */
 async function buildShapeAutoForSelectedRoute(forceCreate = false) {
   const rid = resolveActiveRouteId();
   log("buildShapeAutoForSelectedRoute start", { selectedRouteId, resolved: rid, forceCreate });
@@ -3735,21 +3738,25 @@ async function buildShapeAutoForSelectedRoute(forceCreate = false) {
     return;
   }
 
-  // NOTE: from here on, use rid instead of selectedRouteId
-  const anyShapeId = trips.some(t => t.route_id === rid && t.shape_id);
-  log("anyShapeId?", anyShapeId);
-
-  if (!anyShapeId && !forceCreate) {
-    setBanner({ kind: "info", text: "No shape yet for this route." });
-    setTimeout(() => setBanner(null), 1400);
-    log("buildShapeAutoForSelectedRoute abort: no shape_id & not forceCreate");
-    return;
-  }
-
   const route = routes.find(r => r.route_id === rid);
-  const pack = getOrderedStopsForRoute(rid, stopTimesByTrip as StopTimesByTrip);
-  log("route / pack", route?.route_id, !!pack);
+  // Prefer full stop_times from the imported feed; fall back to UI subset
+  const rowsSource: StopTime[] =
+    (stopTimesAllRef.current && stopTimesAllRef.current.length)
+      ? stopTimesAllRef.current
+      : stopTimes;
 
+  // Build a rowsByTrip map from rowsSource
+  const rowsByTripFull = (() => {
+    const m = new Map<string, StopTime[]>();
+    for (const r of rowsSource) {
+      if (!m.has(r.trip_id)) m.set(r.trip_id, []);
+      m.get(r.trip_id)!.push(r);
+    }
+    for (const [k, arr] of m) arr.sort((a,b)=>num(a.stop_sequence)-num(b.stop_sequence));
+    return m as StopTimesByTrip;
+  })();
+
+  const pack = getOrderedStopsForRoute(rid, rowsByTripFull);
   if (!route || !pack) {
     setBanner({ kind: "info", text: "Add stop_times for this route first." });
     setTimeout(() => setBanner(null), 1600);
@@ -3757,30 +3764,195 @@ async function buildShapeAutoForSelectedRoute(forceCreate = false) {
   }
 
   const profile = getRouteProfileFromType(route.route_type);
-  const { shapeId, coords } = pack;
-  log("profile / chosen shapeId / coords", profile, shapeId, coords.length);
+  const { shapeId } = pack;
 
-  try {
-    if (profile === "road") {
-      const routed = await buildRoadShapeViaOSRM(coords);
-      log("OSRM returned points:", routed.length);
-      commitShapeToSelectedRoute(rid, shapeId, routed);
+  // --- sanitize + compact coords (remove NaNs and near-duplicates) ---
+  const rawCoords: [number, number][] = pack.coords || [];
+  const cleanCoords: [number, number][] = (() => {
+    const out: [number, number][] = [];
+    let prev: [number, number] | null = null;
+    const EPS = 1e-6; // ~0.1 m
+    for (const pair of rawCoords) {
+      const lat = Number(pair?.[0]);
+      const lon = Number(pair?.[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (prev && Math.abs(lat - prev[0]) < EPS && Math.abs(lon - prev[1]) < EPS) continue;
+      out.push([lat, lon]);
+      prev = [lat, lon];
+    }
+    return out;
+  })();
+
+  log("profile / chosen shapeId / coords", profile, shapeId, cleanCoords.length);
+
+  // --- Helper: commit + draw + feedback ---
+  const ensureCommit = (points: [number, number][], fallbackMsg?: string) => {
+    if (!points || points.length < 2) {
+      setBanner({ kind: "error", text: "No shape could be built — too few valid coordinates." });
+      setTimeout(() => setBanner(null), 2200);
       return;
     }
-    log("Using straight segments (fallback) points:", coords.length);
-    commitShapeToSelectedRoute(rid, shapeId, coords.slice());
-    setBanner({
-      kind: "info",
-      text: profile === "rail"
-        ? "Rail auto-build uses straight segments as a fallback."
-        : "Water auto-build uses straight segments as a fallback.",
-    });
-    setTimeout(() => setBanner(null), 2200);
-  } catch (e) {
-    console.error(e);
-    setBanner({ kind: "error", text: "Failed to build shape. Try again." });
-    setTimeout(() => setBanner(null), 2200);
+
+    // IMPORTANT: the function’s TS signature is (routeId, shapeId, points)
+    commitShapeToSelectedRoute(rid, shapeId, points);
+
+    // Best-effort draw + zoom without tempLayerGroupRef
+    try {
+      const map = (mapRef as any)?.current;
+      const Lg = (window as any)?.L || L;
+      if (map && Lg) {
+        // Reuse a single temporary layer group on the window
+        const win = window as any;
+        if (!win.__gtfsTempLayer) {
+          win.__gtfsTempLayer = Lg.layerGroup().addTo(map);
+        }
+        win.__gtfsTempLayer.clearLayers();
+
+        const layer = Lg.polyline(points, { weight: 4 }).addTo(win.__gtfsTempLayer);
+        const b = layer?.getBounds?.();
+        if (b && b.isValid && b.isValid()) {
+          map.fitBounds(b, { padding: [28, 28], maxZoom: 10, animate: false });
+        }
+      }
+    } catch (e) {
+      console.warn("[GTFS] draw/zoom skipped:", e);
+    }
+
+    if (fallbackMsg) {
+      setBanner({ kind: "info", text: fallbackMsg });
+      setTimeout(() => setBanner(null), 2200);
+    }
+  };
+
+  try {
+    // road → try OSRM, else fallback
+    if (profile === "road") {
+      if (cleanCoords.length < 2) {
+        setBanner({ kind: "error", text: "No valid coordinates for this route." });
+        setTimeout(() => setBanner(null), 2200);
+        return;
+      }
+
+      // reject too-long routes (> 400km total)
+      const [first, last] = [cleanCoords[0], cleanCoords[cleanCoords.length - 1]];
+      const Lg = (window as any)?.L || L;
+
+      let distApprox = NaN;
+      try {
+        distApprox = Lg.latLng(first[0], first[1]).distanceTo(Lg.latLng(last[0], last[1])) / 1000;
+      } catch {
+        // haversine fallback
+        const toRad = (x:number)=>x*Math.PI/180;
+        const R = 6371e3;
+        const φ1 = toRad(first[0]), φ2 = toRad(last[0]);
+        const Δφ = toRad(last[0]-first[0]);
+        const Δλ = toRad(last[1]-first[1]);
+        const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+        distApprox = (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))) / 1000;
+      }
+      log("approx dist", distApprox, "km");
+
+      if (distApprox > 400) {
+        log("Skipping OSRM for long route", { distApprox });
+        ensureCommit(cleanCoords, "Long route — used straight lines.");
+        return;
+      }
+
+      try {
+        const routed = await buildRoadShapeViaOSRM(cleanCoords);
+        if (routed && routed.length >= 2) {
+          log("OSRM succeeded", routed.length);
+          ensureCommit(routed);
+          return;
+        } else {
+          log("OSRM returned no geometry, fallback to straight");
+          ensureCommit(cleanCoords, "OSRM returned empty; used straight lines.");
+          return;
+        }
+      } catch (err) {
+        console.warn("OSRM failed:", err);
+        ensureCommit(cleanCoords, "OSRM failed; used straight lines instead.");
+        return;
+      }
+    }
+
+    // rail/water → always straight
+    if (profile === "rail" || profile === "water") {
+      if (cleanCoords.length < 2) {
+        setBanner({ kind: "error", text: "No valid coordinates for this route." });
+        setTimeout(() => setBanner(null), 2200);
+        return;
+      }
+      ensureCommit(cleanCoords, `${profile} auto-build used straight segments.`);
+      return;
+    }
+
+    // unknown type → fallback
+    ensureCommit(cleanCoords, "Unknown route type; drew straight segments.");
+  } catch (err) {
+    console.error(err);
+    ensureCommit(cleanCoords, "Shape built with straight lines after error.");
   }
+}
+
+// Auto-build a shape as soon as a single route is selected (if none exists yet)
+useEffect(() => {
+  if (suppressCompute.current) return;
+
+  const rid = resolveActiveRouteId(); // uses your helper (single selection only)
+  if (!rid) return;
+
+  // If the selected route already has a non-empty shape, do nothing
+  const firstTripInRoute = trips.find(t => t.route_id === rid);
+  const shapeId = firstTripInRoute?.shape_id;
+  const hasShapePoints = shapeId
+    ? shapePts.some(p => String(p.shape_id) === String(shapeId))
+    : false;
+
+  if (hasShapePoints) return;
+
+  // Small debounce to let lazy stop_times selection settle
+  const h = window.setTimeout(() => {
+    // This will pick OSRM/straight segments based on route_type automatically
+    buildShapeAutoForSelectedRoute();
+  }, 150);
+
+  return () => window.clearTimeout(h);
+}, [selectedRouteId, selectedRouteIds, trips, shapePts]);
+
+function MapInteractionBusy({ onChange }: { onChange: (busy: boolean) => void }) {
+  const map = useMap();
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const start = () => {
+      // debounce so we don't flash the overlay on very quick moves
+      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = window.setTimeout(() => onChange(true), 120);
+    };
+    const stop = () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      // let the browser finish any layout/paint before hiding
+      if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(() => onChange(false), { timeout: 300 });
+      } else {
+        setTimeout(() => onChange(false), 0);
+      }
+    };
+
+    map.on('movestart zoomstart', start);
+    map.on('moveend zoomend', stop);
+    return () => {
+      map.off('movestart zoomstart', start);
+      map.off('moveend zoomend', stop);
+      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+    };
+  }, [map, onChange]);
+
+  return null;
 }
 
 function CaptureMap({ onReady }: { onReady: (m: L.Map) => void }) {
@@ -3903,23 +4075,39 @@ function StopsLayer({
 
 /** Auto-rebuild whenever the selected route’s route_type changes */
 const prevRouteTypeRef = useRef<number | undefined>(undefined);
+// --- Lazy load stop_times only for the selected route ---
 useEffect(() => {
-  // ⬇️ Prevent auto-rebuild during bulk imports
   if (suppressCompute.current) return;
 
-  if (!selectedRouteId) return;
+  const rid = resolveActiveRouteId();
+  const all = stopTimesAllRef.current;
 
-  const rt = routes.find(r => r.route_id === selectedRouteId)?.route_type;
-  const prev = prevRouteTypeRef.current;
-
-  if (prev !== undefined && prev !== rt) {
-    // route_type changed → rebuild if we have stop_times
-    const hasAny = (stopTimesByTrip.size > 0);
-    if (hasAny) buildShapeAutoForSelectedRoute();
+  // If nothing selected or we don’t have the full stop_times cache, keep UI list empty
+  if (!rid || !all?.length) {
+    if (stopTimes.length) setStopTimes([]);
+    return;
   }
 
-  prevRouteTypeRef.current = rt;
-}, [routes, selectedRouteId, stopTimesByTrip]);
+  // Build the set of trip_ids for the active route
+  const tids = new Set(trips.filter(t => t.route_id === rid).map(t => t.trip_id));
+  if (!tids.size) {
+    if (stopTimes.length) setStopTimes([]);
+    return;
+  }
+
+  const run = () => {
+    const filtered = all.filter(st => tids.has(st.trip_id));
+    startTransition(() => setStopTimes(filtered));
+  };
+
+  // Do this when the browser is idle (or soon)
+  if ("requestIdleCallback" in window) {
+    // @ts-ignore
+    (window as any).requestIdleCallback(run, { timeout: 120 });
+  } else {
+    setTimeout(run, 0);
+  }
+}, [selectedRouteId, selectedRouteIds, trips]); 
 
 
 
@@ -4233,15 +4421,9 @@ useEffect(() => {
                 </div>
               </div>
             )}
-            {routes.length > 1200 && !selectedRouteId && selectedRouteIds.size === 0 && (
-              <div style={{
-                marginBottom: 6, padding: "6px 10px", borderRadius: 8,
-                background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa",
-                fontSize: 12
-              }}>
-                Large feed detected. Select a route on the map or in <b>routes.txt</b> to render it.
-              </div>
-            )}
+
+            
+            
             <MapContainer
               center={[40.4168, -3.7038]}
               zoom={6}
@@ -4250,6 +4432,7 @@ useEffect(() => {
               style={{ height: "100%", width: "100%" }}
             >
               <CaptureMap onReady={(m) => { mapRef.current = m; }} />
+              <MapInteractionBusy onChange={setIsMapBusy} />
               {!selectedStopId && !selectedRouteId && (
                 <AddStopOnMapClick
                   onAdd={(lat, lng) => addStopAt(lat, lng)}
@@ -4316,80 +4499,62 @@ useEffect(() => {
 
 
               {/* Route polylines (from cache) */}
-              {!tooManyRoutes &&
-                visibleRouteIds
-                  .filter((route_id) => {
-                    if (!isScopedView) return true;
-                    if (selectedRouteIds.size) return selectedRouteIds.has(route_id);
-                    return selectedRouteId ? route_id === selectedRouteId : true;
-                  })
-                  .map((route_id) => {
-                    const geom = getRouteGeom(route_id);
-                    if (!geom) return null;
-                    const coords = geom.coords;
+              {visibleRouteIds
+                .filter((route_id) => {
+                  if (!isScopedView) return true;
+                  if (selectedRouteIds.size) return selectedRouteIds.has(route_id);
+                  return selectedRouteId ? route_id === selectedRouteId : true;
+                })
+                .map((route_id) => {
+                  const geom = getRouteGeom(route_id);
+                  if (!geom) return null;
+                  const coords = geom.coords;
 
-                    const isSel = selectedRouteId === route_id || selectedRouteIds.has(route_id);
-                    const hasSel = !!selectedRouteId || selectedRouteIds.size > 0;
-                    const color = hasSel ? (isSel ? routeColor(route_id) : DIM_ROUTE_COLOR) : routeColor(route_id);
-                    const weight = isSel ? 6 : 3;
-                    const opacity = hasSel ? (isSel ? 0.95 : 0.6) : 0.95;
+                  const isSel  = selectedRouteId === route_id || selectedRouteIds.has(route_id);
+                  const hasSel = !!selectedRouteId || selectedRouteIds.size > 0;
+                  const color  = hasSel ? (isSel ? routeColor(route_id) : DIM_ROUTE_COLOR) : routeColor(route_id);
+                  const weight = isSel ? 6 : 3;
+                  const opacity = hasSel ? (isSel ? 0.95 : 0.6) : 0.95;
 
-                    const onRouteClick = (e: any) => {
-                      if (e?.originalEvent) L.DomEvent.stop(e.originalEvent);
-                      if (isBusy) return;
-                      startTransition(() => {
-                        setSelectedRouteId(route_id);
-                        setSelectedRouteIds(new Set([route_id]));
-                      });
-                    };
+                  const onRouteClick = (e: any) => {
+                    if (e?.originalEvent) L.DomEvent.stop(e.originalEvent);
+                    if (isBusy) return;
+                    startTransition(() => {
+                      setSelectedRouteId(route_id);
+                      setSelectedRouteIds(new Set([route_id]));
+                    });
+                  };
 
-
-                    return (
-                      <div key={route_id}>
-                        {/* invisible wide hit line */}
+                  return (
+                    <div key={route_id}>
+                      <Polyline
+                        positions={coords as any}
+                        pane="routeHits"
+                        smoothFactor={2}
+                        pathOptions={{ color: "rgba(0,0,0,0.01)", opacity: 0.01, weight: Math.max(16, weight + 12), interactive: true }}
+                        bubblingMouseEvents={false}
+                        eventHandlers={{ click: onRouteClick }}
+                      />
+                      {isSel && (
                         <Polyline
                           positions={coords as any}
-                          pane="routeHits"
+                          pane="routeHalo"
                           smoothFactor={2}
-                          pathOptions={{
-                            color: "rgba(0,0,0,0.01)",   // or color: "#000", opacity: 0.01
-                            opacity: 0.01,               // > 0 so Canvas will register hits
-                            weight: Math.max(16, weight + 12),
-                            interactive: true
-                          }}
-                          bubblingMouseEvents={false}
-                          eventHandlers={{ click: onRouteClick }}
+                          className="route-halo-pulse"
+                          pathOptions={{ color: "#ffffff", weight: 10, opacity: 0.9, lineCap: "round", interactive: false }}
                         />
-
-                        {/* halo when selected */}
-                        {isSel && (
-                          <Polyline
-                            positions={coords as any}
-                            pane="routeHalo"
-                            smoothFactor={2}
-                            className="route-halo-pulse"
-                            pathOptions={{
-                              color: "#ffffff",
-                              weight: 10,
-                              opacity: 0.9,
-                              lineCap: "round",
-                              interactive: false
-                            }}
-                          />
-                        )}
-
-                        {/* visible line */}
-                        <Polyline
-                          positions={coords as any}
-                          pane="routeLines"
-                          smoothFactor={2}
-                          pathOptions={{ color, weight, opacity, interactive: true }}
-                          bubblingMouseEvents={false}
-                          eventHandlers={{ click: onRouteClick }}
-                        />
-                      </div>
-                    );
-                  })
+                      )}
+                      <Polyline
+                        positions={coords as any}
+                        pane="routeLines"
+                        smoothFactor={2}
+                        pathOptions={{ color, weight, opacity, interactive: true }}
+                        bubblingMouseEvents={false}
+                        eventHandlers={{ click: onRouteClick }}
+                      />
+                    </div>
+                  );
+                })
               }
                 
             </MapContainer>
@@ -4798,6 +4963,20 @@ useEffect(() => {
                             const stopName = stopIdToName(r.stop_id);
                             const bad = badTimeKeys.has(`${r.trip_id}::${r.stop_sequence}`);
                             const badInputStyle = bad ? { border: "1px solid #e11d48", background: "#fee2e2" } : {};
+                            
+                            // --- DEBUG: expose state for console inspection ---
+                            if (typeof window !== "undefined") {
+                              (window as any).appDebug = {
+                                routes,
+                                trips,
+                                shapePts,      // your in-memory shapes table
+                                stops,
+                                stopTimes,
+                                activeRoute,
+                                // expose any helpers you use in rendering:
+                                getRouteGeom,  // if this exists in scope; if not, omit
+                              };
+                            }
 
                             return (
                               <tr
@@ -5079,11 +5258,11 @@ useEffect(() => {
       </div>
 
       
-      {isBusy && (
+      {(isBusy || isMapBusy) && (
         <button
           className="busy-fab"
           aria-busy="true"
-          title={busyLabel ?? "Working…"}
+          title={busyLabel ?? "Rendering map…"}
           style={{
             position: "fixed",
             right: 16,
@@ -5103,7 +5282,7 @@ useEffect(() => {
           }}
         >
           <span className="spinner" />
-          <span>{busyLabel ?? "Working…"}</span>
+          <span>{busyLabel ?? "Rendering map…"}</span>
         </button>
       )}
     </div>
