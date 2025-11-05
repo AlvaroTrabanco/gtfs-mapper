@@ -7,14 +7,40 @@ import { saveAs } from "file-saver";
 import * as Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import PatternMatrix from "./PatternMatrix";
+import { useDebouncedValue } from "./hooks/useDebouncedValue";
 
 
+// === throttle (no deps) ===
+function throttle<T extends (...args: any[]) => void>(fn: T, wait = 150) {
+  let last = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: Parameters<T> | null = null;
+
+  return function throttled(this: unknown, ...args: Parameters<T>) {
+    console.log('throttling');
+    const now = Date.now();
+    const remaining = wait - (now - last);
+    lastArgs = args;
+
+    if (remaining <= 0) {
+      if (timer) { clearTimeout(timer); timer = null; }
+      last = now;
+      fn.apply(this, lastArgs);
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        last = Date.now();
+        timer = null;
+        if (lastArgs) fn.apply(this, lastArgs);
+      }, remaining);
+    }
+  } as T;
+}
 
 /** ---------- Misc ---------- */
 const defaultTZ: string = String(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid");
 const MIN_ADD_ZOOM = 11;
 const MIN_STOP_ZOOM = 6;
-const MIN_ROUTE_ZOOM = 6;      // ← NEW: don’t draw route lines when zoomed way out
+const MIN_ROUTE_ZOOM = 0;      // ← NEW: don’t draw route lines when zoomed way out
 const MAX_ROUTE_POINTS = 2000; // ← NEW: cap points per polyline drawn to the screen
 const DIM_ROUTE_COLOR = "#2b2b2b";
 const MAX_TRIP_GROUPS_RENDERED = 12; // render at most 12 trip sections at once
@@ -91,6 +117,15 @@ type StopDefaults = { dwell?: number; pickup?: number; dropoff?: number };
 
 
 /** ---------- Helpers ---------- */
+
+// ---- debounce helpers for map state ----
+function boundsKey(b?: L.LatLngBounds | null): string {
+  if (!b) return "";
+  const sw = b.getSouthWest(), ne = b.getNorthEast();
+  // coarse rounding is enough to avoid thrash while still updating fast
+  const r = (n: number) => n.toFixed(4);
+  return `${r(sw.lat)},${r(sw.lng)}|${r(ne.lat)},${r(ne.lng)}`;
+}
 
 // -- micro-yield so the browser can breathe during huge imports
 const tick = () => new Promise<void>(r => setTimeout(r, 0));
@@ -442,7 +477,8 @@ const decimate = (coords: LatLng[], maxPts = MAX_ROUTE_POINTS): LatLng[] => {
 
 /** ---------- Map bits ---------- */
 
-
+// --- Basemap performance knobs ---
+const MIN_BASEMAP_ZOOM = 9;       // don't load tiles below this zoom
 
 function MapStateTracker({
   onChange,
@@ -1100,6 +1136,9 @@ export default function App() {
     return m;
   }, [shapePts]);
 
+  // Cache for route geometries (coords + bbox) to avoid recomputing during pan/zoom
+  const routeGeomCacheRef = useRef<Map<string, RouteGeom>>(new Map());
+
   const coordsForRoute = useCallback((routeId: string): LatLng[] | null => {
     // 1) try shapes first (longest shape across the route's trips)
     const rTrips = trips.filter(t => t.route_id === routeId);
@@ -1136,10 +1175,15 @@ export default function App() {
   }, [trips, shapesById, stopsById, stopTimes]);
 
   const getRouteGeom = useCallback((routeId: string): RouteGeom | null => {
+    const cache = routeGeomCacheRef.current;
+    const hit = cache.get(routeId);
+    if (hit) return hit;
     const coords = coordsForRoute(routeId);
     if (!coords || coords.length < 2) return null;
     const slim = decimate(coords, MAX_ROUTE_POINTS);
-    return { coords: slim, bbox: bboxOf(slim) };
+    const geom: RouteGeom = { coords: slim, bbox: bboxOf(slim) };
+    cache.set(routeId, geom);
+    return geom;
   }, [coordsForRoute]);
 
   
@@ -1188,38 +1232,8 @@ export default function App() {
     if (routes.length === 1) return routes[0].route_id;
     return null;
   }
-  // --- Lazy load stop_times only for the selected route ---
-    useEffect(() => {
-      // don’useEffect(() => {
-    if (suppressCompute.current) return;
-
-    const rid = resolveActiveRouteId();
-    const all = stopTimesAllRef.current;
-
-    if (!rid || !all?.length) {
-      if (stopTimes.length) setStopTimes([]);
-      return;
-    }
-
-    const tids = new Set(trips.filter(t => t.route_id === rid).map(t => t.trip_id));
-    if (!tids.size) {
-      if (stopTimes.length) setStopTimes([]);
-      return;
-    }
-
-    const run = () => {
-      const filtered = all.filter(st => tids.has(st.trip_id));
-      startTransition(() => setStopTimes(filtered));
-    };
-
-    if ("requestIdleCallback" in window) {
-      // @ts-ignore
-      (window as any).requestIdleCallback(run, { timeout: 120 });
-    } else {
-      setTimeout(run, 0);
-    }
-  }, [selectedRouteId, selectedRouteIds, trips]);
-
+    // --- Lazy load stop_times only for the selected route ---
+  
 
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
 
@@ -1349,42 +1363,111 @@ export default function App() {
   const [existingStopToAdd, setExistingStopToAdd] = useState<string>("");
 
   // Map state for culling heavy layers
+  
   const [mapZoom, setMapZoom] = useState(6);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  
+  // Debounce keys for throttled route culling
+  const [mapBoundsKey, setMapBoundsKey] = useState<string>("");
+  const debouncedZoom = useDebouncedValue(mapZoom, 180);           // ~1 frame after pan
+  const debouncedBoundsKey = useDebouncedValue(mapBoundsKey, 180); // same delay
 
+  // Briefly pause drawing routes during map interactions (and 150ms after)
+  const [canDrawRoutes, setCanDrawRoutes] = useState(true);
 
+    // Shows the overlay while the user is panning/zooming and the map is rendering
+  const [isMapBusy, setIsMapBusy] = useState(false);
 
-  const visibleRouteIds = useMemo(() => {
-    if (!mapBounds || mapZoom < MIN_ROUTE_ZOOM || !showRoutes) return [];
+  // ---- Throttled shapes visibility ----
+  const [visibleRoutesThrottled, setVisibleRoutesThrottled] = useState<string[]>([]);
+  const pushVisibleRoutes = useMemo(
+    () => throttle((ids: string[]) => setVisibleRoutesThrottled(ids), 120),
+    []
+  );
 
-    // If there are LOTS of routes and nothing is selected/scoped,
-    // don't compute geometry at all — avoid freezing on huge feeds.
-    const hasSelection =
-      !!selectedRouteId || (selectedRouteIds && selectedRouteIds.size > 0);
+  // Clear geometry cache whenever shapes or stop order changes
+  useEffect(() => {
+    routeGeomCacheRef.current.clear();
+  }, [shapePts, trips, stops, stopTimes]);
 
-    // if (routes.length > 1200 && !hasSelection) {
-    //   return []; // draw nothing until user selects a route
-    // }
-
-    // fast path: if scoping and we have a selection, just draw the selection
-    if (isScopedView) {
-      const selected = new Set<string>(selectedRouteIds);
-      if (selectedRouteId) selected.add(selectedRouteId);
-      if (selected.size) return Array.from(selected);
+  useEffect(() => {
+    if (isMapBusy) {
+      setCanDrawRoutes(false);
+    } else {
+      const h = window.setTimeout(() => setCanDrawRoutes(true), 15000);
+      return () => window.clearTimeout(h);
     }
+  }, [isMapBusy]);
 
-    const padded = mapBounds.pad(0.10);
-    const out: string[] = [];
-    for (const r of routes) {
-      const g = getRouteGeom(r.route_id);
-      if (g && g.bbox.intersects(padded)) out.push(r.route_id);
+
+
+
+// PATCH: visibleRouteIds (replace existing block)
+const visibleRouteIds = useMemo<string[]>(() => {
+  // Don’t even *compute* candidates while map is busy or routes are hidden
+  if (!showRoutes || !canDrawRoutes) return [];
+
+  // Gate: don't consider shapes if zoomed out too far (use debounced zoom when available)
+  const zoomForGate = typeof debouncedZoom === "number" ? debouncedZoom : mapZoom;
+  if (zoomForGate < MIN_ROUTE_ZOOM) return [];
+
+  // If scoping is on and there is a selection, draw it eagerly regardless of bounds snapshot readiness.
+  if (isScopedView) {
+    // Build a stable selection set once
+    if (selectedRouteIds.size > 0 || selectedRouteId) {
+      const sel = new Set<string>(selectedRouteIds);
+      if (selectedRouteId) sel.add(selectedRouteId);
+      if (sel.size > 0) return Array.from(sel);
     }
-    return out;
-  }, [
-    mapBounds, mapZoom, showRoutes,
-    isScopedView, selectedRouteId, selectedRouteIds,
-    routes, getRouteGeom
-  ]);
+  }
+
+  // Until we have a debounced bounds snapshot, avoid mass computations.
+  if (!debouncedBoundsKey || !mapBounds) {
+    return [];
+  }
+
+  // Use the debounced bounds snapshot for bbox tests, with a small pad to avoid flicker at edges.
+  const padded = mapBounds.pad(0.10);
+  const out: string[] = [];
+
+  for (const r of routes) {
+    const geom = getRouteGeom(r.route_id);
+    // Only include if we have geometry *and* its bbox intersects the padded map bounds
+    if (geom?.bbox?.intersects?.(padded)) {
+      out.push(r.route_id);
+    }
+  }
+
+  return out;
+}, [
+  // throttle inputs
+  debouncedBoundsKey,
+  debouncedZoom,
+
+  // logical toggles / state that change what we render
+  showRoutes,
+  isScopedView,
+
+  // selection state
+  selectedRouteId,
+  selectedRouteIds,
+
+  // data & helpers
+  routes,
+  getRouteGeom,
+
+  // current bounds object used for padding (even though we key off debouncedBoundsKey)
+  mapBounds,
+
+  // zoom fallback when debouncedZoom is undefined
+  mapZoom
+]);
+
+  useEffect(() => {
+    // throttle → state
+    if (canDrawRoutes) pushVisibleRoutes(visibleRouteIds);
+  }, [visibleRouteIds, pushVisibleRoutes]);
+
 
   // Stable callback so MapStateTracker's effect doesn't re-run forever
   const [mapCenter, setMapCenter] = useState<L.LatLng | null>(null);
@@ -1397,6 +1480,7 @@ export default function App() {
     setMapZoom(prev => (prev === z ? prev : z));
     setMapBounds(prev => (prev && prev.equals(b) ? prev : b));
     setMapCenter(prev => (prev && prev.equals(c) ? prev : c));
+    setMapBoundsKey(boundsKey(b));          // ← NEW
   }, []);
 
   // ---- Auto-rebuild shape debounce (USED WHEN MOVING A STOP) ----
@@ -1485,8 +1569,7 @@ export default function App() {
   // Busy/lock UI while long ops run
   const [isBusy, setIsBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
-  // Shows the overlay while the user is panning/zooming and the map is rendering
-  const [isMapBusy, setIsMapBusy] = useState(false);
+
   const withBusy = async (label: string, fn: () => Promise<void> | void) => {
     if (isBusy) return;           // ignore re-entrancy
     setIsBusy(true);
@@ -2034,11 +2117,6 @@ const addStopTimeRow = () => {
   setBanner({ kind: "success", text: `Added stop_time after seq ${afterSeq || 0}.` });
   setTimeout(() => setBanner(null), 1200);
 };
-
-  // Don’t load anything from previous sessions
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
 
 
   
@@ -3647,6 +3725,9 @@ function commitShapeToSelectedRoute(routeId: string, shapeId: string, path: [num
     return [...kept, ...fresh];
   });
 
+  // Invalidate cached route geometries so new shapes render immediately
+  routeGeomCacheRef.current.clear();
+
   // 3) persist route -> shape mapping
   setProject((prev: any) => {
     const map: ShapeByRoute = prev?.extras?.shapeByRoute ?? {};
@@ -3898,6 +3979,7 @@ async function buildShapeAutoForSelectedRoute(forceCreate = false) {
 // Auto-build a shape as soon as a single route is selected (if none exists yet)
 useEffect(() => {
   if (suppressCompute.current) return;
+  if (!showRoutes) return;
 
   const rid = resolveActiveRouteId(); // uses your helper (single selection only)
   if (!rid) return;
@@ -3918,7 +4000,7 @@ useEffect(() => {
   }, 150);
 
   return () => window.clearTimeout(h);
-}, [selectedRouteId, selectedRouteIds, trips, shapePts]);
+}, [selectedRouteId, selectedRouteIds, trips, shapePts, showRoutes]);
 
 function MapInteractionBusy({ onChange }: { onChange: (busy: boolean) => void }) {
   const map = useMap();
@@ -4226,7 +4308,19 @@ useEffect(() => {
           
 
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" checked={showRoutes} onChange={e => setShowRoutes(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={showRoutes}
+              onChange={e => {
+                const next = e.target.checked;
+                setShowRoutes(next);
+                if (!next) {
+                  // Hide = clear any selection so nothing “becomes selected”
+                  setSelectedRouteId(null);
+                  setSelectedRouteIds(new Set());
+                }
+              }}
+            />
             Show routes
           </label>
 
@@ -4401,9 +4495,9 @@ useEffect(() => {
                 fontSize: 12,
                 fontWeight: 600,
               }}
-              title={`Zoom in to at least ${MIN_ADD_ZOOM} to add stops by clicking on the map and see the route paths`}
+              title={`Zoom in to at least ${MIN_ADD_ZOOM} to add stops by clicking on the map.`}
             >
-              Zoom in to at least {MIN_ADD_ZOOM} to add stops by clicking on the map and see the route paths.
+              Zoom in to at least ${MIN_ADD_ZOOM} to add stops by clicking on the map and see the route paths.
             </span>
           )}
           <div className={`map-shell ${selectedRouteId ? "bw" : ""}`} style={{ height: 400, width: "100%", borderRadius: 12, overflow: "hidden", position: "relative" }}>
@@ -4461,9 +4555,25 @@ useEffect(() => {
               <MapStateTracker onChange={onMapState} />
 
               {/* Base map tiles */}
-              <TileLayer
+              {/* <TileLayer
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="© OpenStreetMap contributors"
+                attribution="&copy; OpenStreetMap contributors"
+                detectRetina={false}
+                tileSize={12}
+                keepBuffer={1}
+                updateWhenZooming={false}
+                updateWhenIdle={true}
+                maxNativeZoom={18}
+              /> */}
+              <TileLayer
+                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+                tileSize={256}
+                detectRetina={false}
+                keepBuffer={1}
+                updateWhenZooming={false}
+                updateWhenIdle={true}
+                maxNativeZoom={17}
               />
 
               {/* Rendering panes for layers */}
@@ -4499,7 +4609,7 @@ useEffect(() => {
 
 
               {/* Route polylines (from cache) */}
-              {visibleRouteIds
+              {(visibleRoutesThrottled.length ? visibleRoutesThrottled : visibleRouteIds)
                 .filter((route_id) => {
                   if (!isScopedView) return true;
                   if (selectedRouteIds.size) return selectedRouteIds.has(route_id);
@@ -4507,6 +4617,7 @@ useEffect(() => {
                 })
                 .map((route_id) => {
                   const geom = getRouteGeom(route_id);
+                  if (mapZoom < MIN_ROUTE_ZOOM) return null;
                   if (!geom) return null;
                   const coords = geom.coords;
 
@@ -4554,8 +4665,7 @@ useEffect(() => {
                       />
                     </div>
                   );
-                })
-              }
+                })}
                 
             </MapContainer>
 
