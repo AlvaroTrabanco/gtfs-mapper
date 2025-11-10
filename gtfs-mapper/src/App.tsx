@@ -5672,7 +5672,64 @@ useEffect(() => {
 
       
       {/* ===== Routes table ===== */}
-      
+      <div ref={routesTableRef}>
+        <PaginatedEditableTable<RouteRow>
+          title="routes.txt"
+          rows={routesScoped}
+          onChange={setRoutes}
+          visibleIndex={routesVisibleIdx}
+          // Select row → single-select that route
+          onRowClick={(row) => {
+            const rid = row.route_id;
+            setSelectedRouteId(rid);
+            setSelectedRouteIds(new Set([rid]));
+            setMapClickMenu(null);
+          }}
+          // Highlight selected rows
+          selectedPredicate={(row) =>
+            row.route_id === selectedRouteId || selectedRouteIds.has(row.route_id)
+          }
+          onIconClick={(row) => {
+            // toggle selection for multi-select if you want; for now just single
+            setSelectedRouteId(row.route_id);
+            setSelectedRouteIds(new Set([row.route_id]));
+          }}
+          // 🔹 RESTORE: Add Route button
+          onAddRow={createNewRoute}
+          addRowLabel="Route"
+          // Optional primary action: Duplicate selected
+          primaryAction={
+            selectedRouteId
+              ? { label: "Duplicate selected", onClick: duplicateSelectedRoute }
+              : undefined
+          }
+          // Extra header controls (hide/unhide/show selection)
+          headerExtras={
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn"
+                onClick={() => hideSelectedRoutes()}
+                disabled={!hasSelection}
+                title="Hide selected routes from the map"
+              >
+                Hide selected
+              </button>
+              <button
+                className="btn"
+                onClick={() => unhideAllRoutes()}
+                title="Show all routes again"
+              >
+                Unhide all
+              </button>
+            </div>
+          }
+          // Enable drag to reorder visually if desired (doesn't affect ids)
+          draggableRows={false}
+          // If you support deletion:
+          onDeleteRow={(row) => hardDeleteRoute(row.route_id)}
+          emptyText="No routes."
+        />
+      </div>
 
       {/* Service chips */}
       {selectedRouteId && (
