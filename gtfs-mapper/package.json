@@ -20,6 +20,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-leaflet": "^4.2.1",
+    "unzipit": "^1.4.3",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

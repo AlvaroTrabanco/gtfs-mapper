@@ -46,7 +46,7 @@ function throttle<T extends (...args: any[]) => void>(fn: T, wait = 1500) {
 const defaultTZ: string = String(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid");
 const MIN_ADD_ZOOM = 11;
 const MIN_STOP_ZOOM = 9;
-const MIN_ROUTE_ZOOM = 5;      // ← NEW: don’t draw route lines when zoomed way out
+const MIN_ROUTE_ZOOM = 4;      // ← NEW: don’t draw route lines when zoomed way out
 const MAX_ROUTE_POINTS = 2000; // ← NEW: cap points per polyline drawn to the screen
 const DIM_ROUTE_COLOR = "#2b2b2b";
 const MAX_TRIP_GROUPS_RENDERED = 12; // render at most 12 trip sections at once
@@ -138,20 +138,28 @@ function boundsKey(b?: L.LatLngBounds | null): string {
 // -- micro-yield so the browser can breathe during huge imports
 const tick = () => new Promise<void>(r => setTimeout(r, 0));
 
-// -- CSV parse off the main thread (Papa worker + chunking)
-function parseCsvFast<T = any>(text: string): Promise<T[]> {
+function parseCsvFast<T = any>(input: string | Blob): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const rows: T[] = [];
-    Papa.parse<T>(text, {
+
+    // For strings we can use a worker; for Blobs (FileReader) we keep it on the main thread but chunked.
+    const isString = typeof input === "string";
+
+    Papa.parse<T>(input as any, {
       header: true,
-      worker: true,            // parse in a Web Worker
+      worker: isString,        // worker works great for strings; not used for Blob/File parsing
       skipEmptyLines: true,
-      dynamicTyping: false,    // coerce later; parsing is faster
-      chunkSize: 1024 * 1024,  // ~1MB chunks keep UI responsive
-      chunk: (result: Papa.ParseResult<T>, _parser: Papa.Parser) => {
-        rows.push(...result.data);
+      dynamicTyping: false,
+      // Papa will chunk local files automatically (LocalChunkSize), and we still collect per-chunk here:
+      chunk: (result: Papa.ParseResult<T>) => {
+        const data = result?.data as T[] | undefined;
+        if (!data || data.length === 0) return;
+        // Avoid push(...data) which can overflow on large chunks
+        for (let i = 0; i < data.length; i++) rows.push(data[i]);
+        // @ts-ignore: Papa’s result type allows this at runtime
+        (result as any).data.length = 0;
       },
-      complete: (_result: Papa.ParseResult<T>) => resolve(rows),
+      complete: () => resolve(rows),
       error: (err: unknown) => reject(err),
     } as Papa.ParseConfig<T>);
   });
@@ -235,12 +243,17 @@ type ImportLike = {
 };
 
 function indexStopTimes(rows: StopTime[]) {
-  const byTrip = new Map<string, string[]>();
-  for (const st of rows) {
-    if (!byTrip.has(st.trip_id)) byTrip.set(st.trip_id, []);
-    byTrip.get(st.trip_id)!.push(st.stop_id);
-  }
-  return byTrip;
+   const grouped = new Map<string, StopTime[]>();
+   for (const st of rows) {
+     if (!grouped.has(st.trip_id)) grouped.set(st.trip_id, []);
+     grouped.get(st.trip_id)!.push(st);
+   }
+   const byTrip = new Map<string, string[]>();
+   for (const [tid, arr] of grouped) {
+     arr.sort((a, b) => num(a.stop_sequence) - num(b.stop_sequence));
+     byTrip.set(tid, arr.map(r => r.stop_id));
+   }
+   return byTrip;
 }
 
 function clampToTrip(
@@ -702,6 +715,9 @@ function PaginatedEditableTable<T extends Record<string, any>>({
     }
     return out;
   }, [query, baseIdx, rows, cols]);
+
+
+
 
   const pageCount = Math.max(1, Math.ceil(filteredIdx.length / pageSize));
   const safePage = Math.min(page, pageCount);
@@ -2688,41 +2704,60 @@ const routePolylines = useMemo(() => {
 
         const zip = await JSZip.loadAsync(file);
 
-        // Collect .txt contents, yielding between files
-        const tables: Record<string, string> = {};
+        // Discover .txt files in the zip (case-insensitive)
         const files = Object.values(zip.files)
           .filter((f: any) => !f.dir && f.name?.toLowerCase().endsWith(".txt"));
 
-        for (const entry of files) {
-          const name = entry.name.replace(/\.txt$/i, "");
-          tables[name] = await (zip.files[entry.name] as any).async("string");
-          await tick(); // let the browser breathe
+        // Helper: find an entry by base name (e.g., "stops" -> "stops.txt")
+        const findEntry = (base: string) =>
+          files.find((f: any) => f.name?.toLowerCase().endsWith(`/${base.toLowerCase()}.txt`)
+            || f.name?.toLowerCase() === `${base.toLowerCase()}.txt`);
+
+        // Helper: read + parse one CSV as Blob to avoid giant JS strings
+        async function parseZipCsv<T = any>(base: string): Promise<T[]> {
+          const entry = findEntry(base);
+          if (!entry) return [];
+          try {
+            // ✅ Avoid JSZip's Blob writer on huge files (causes size-mismatch errors)
+            const u8 = await (zip.files[entry.name] as any).async("uint8array");
+            await tick();
+            const blob = new Blob([u8], { type: "text/plain;charset=utf-8" });
+            return parseCsvFast<T>(blob);
+          } catch (err) {
+            // Graceful fallback for optional heavy files (we auto-build shapes anyway)
+            if (String(base).toLowerCase() === "shapes") {
+              console.warn(`[GTFS] Skipping shapes.txt (decompress failed):`, err);
+              return [];
+            }
+            // One last resort for some quirky zips: parse as text
+            if ((err as Error)?.message?.includes("uncompressed data size mismatch")) {
+              console.warn(`[GTFS] Retrying ${base}.txt as text (may use more memory)…`);
+              const text = await (zip.files[entry.name] as any).async("string");
+              await tick();
+              return parseCsvFast<T>(text);
+            }
+            throw err; // let the outer try/catch show the banner
+          }
         }
 
-        rawCsvRef.current.stop_times = tables["stop_times"] ?? undefined;
-        rawCsvRef.current.shapes     = tables["shapes"] ?? undefined;
-
-        // Parse each CSV off the main thread
-        const parse = <T = any>(name: string) =>
-          tables[name] ? parseCsvFast<T>(tables[name]) : Promise.resolve([] as T[]);
-
-        const [
-          agenciesRaw,
-          stopsRaw,
-          routesRaw,
-          servicesRaw,
-          tripsRaw,
-          stopTimesRaw,
-          shapesRaw,
-        ] = await Promise.all([
-          parse<any>("agency"),
-          parse<any>("stops"),
-          parse<any>("routes"),
-          parse<any>("calendar"),
-          parse<any>("trips"),
-          parse<any>("stop_times"),
-          parse<any>("shapes"),
+        // Parse small tables together, big ones sequentially to keep memory stable
+        const [agenciesRaw, stopsRaw, routesRaw, servicesRaw, tripsRaw] = await Promise.all([
+          parseZipCsv<any>("agency"),
+          parseZipCsv<any>("stops"),
+          parseZipCsv<any>("routes"),
+          parseZipCsv<any>("calendar"),
+          parseZipCsv<any>("trips"),
         ]);
+
+        // Heavy tables (often enormous) — do sequentially
+        const stopTimesRaw = await parseZipCsv<any>("stop_times");
+        let shapesRaw: any[] = [];
+        try { shapesRaw = await parseZipCsv<any>("shapes"); }
+        catch (e) {
+          console.warn("[GTFS] shapes.txt failed; falling back to straight-line shapes.", e);
+          shapesRaw = [];
+        }
+
         hadShapesInZip = Array.isArray(shapesRaw) && shapesRaw.length > 0; // ← NEW
 
         // Map/normalize once, then one render via batched updates
@@ -4610,7 +4645,12 @@ useEffect(() => {
   }
 }, [selectedRouteId, selectedRouteIds, trips]); 
 
-
+const rulesFingerprint = useMemo(() => {
+   const r = (project?.extras?.restrictions ?? {}) as Record<string, any>;
+   // small, cheap fingerprint (length  first/last few keys)
+   const keys = Object.keys(r).sort();
+   return `${keys.length}:${keys.slice(0,3).join("|")}:${keys.slice(-3).join("|")}`;
+}, [project?.extras?.restrictions]);
 
   // App.tsx — inside App(), before return:
   const EMPTY_OBJ = useMemo(() => ({}), []);
@@ -5083,8 +5123,6 @@ useEffect(() => {
               <Pane name="routeLines" style={{ zIndex: 690 }} />
               <Pane name="routeHits"  style={{ zIndex: 700 }} />
 
-              {/* legacy/cached routes if any */}
-              {routePolylines}
 
               {/* stops (zoom-gated) */}
               {showStops && mapZoom >= MIN_STOP_ZOOM && (
@@ -5343,6 +5381,7 @@ useEffect(() => {
       
       {selectedRouteId ? (
         <PatternMatrix
+          key={`pm-${selectedRouteId ?? 'none'}-${rulesFingerprint}`}
           stops={stops}
           services={services}
           trips={tripsByRoute.get(selectedRouteId) ?? []}
