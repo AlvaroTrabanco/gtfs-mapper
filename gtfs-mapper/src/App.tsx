@@ -46,7 +46,7 @@ function throttle<T extends (...args: any[]) => void>(fn: T, wait = 1500) {
 const defaultTZ: string = String(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid");
 const MIN_ADD_ZOOM = 11;
 const MIN_STOP_ZOOM = 9;
-const MIN_ROUTE_ZOOM = 3;      // ← NEW: don’t draw route lines when zoomed way out
+const MIN_ROUTE_ZOOM = 5;      // ← NEW: don’t draw route lines when zoomed way out
 const MAX_ROUTE_POINTS = 2000; // ← NEW: cap points per polyline drawn to the screen
 const DIM_ROUTE_COLOR = "#2b2b2b";
 const MAX_TRIP_GROUPS_RENDERED = 12; // render at most 12 trip sections at once

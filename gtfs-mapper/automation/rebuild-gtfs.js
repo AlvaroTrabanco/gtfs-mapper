@@ -16,13 +16,34 @@ import Papa from "papaparse";
  * - OVERRIDES:       local overrides path (default: automation/overrides.json)
  * - OVERRIDES_URL:   remote overrides JSON URL (takes precedence)
  */
-const SLUG          = process.env.FEED_SLUG    || "feed";
-const SRC_URL       = process.env.FEED_URL     || "http://gtfs.gis.flix.tech/gtfs_generic_eu.zip";
-const OUT_DIR       = process.env.OUT_DIR      || "site";
-const OUT_ZIP       = process.env.OUT_ZIP      || `${SLUG}_compiled.zip`;
-const OUT_REPORT    = process.env.OUT_REPORT   || "report.json";
-const OVERRIDES_PATH= process.env.OVERRIDES    || "automation/overrides.json";
-const OVERRIDES_URL = process.env.OVERRIDES_URL|| "";
+const SLUG           = process.env.FEED_SLUG    || "feed";
+const SRC_URL        = process.env.FEED_URL     || "http://gtfs.gis.flix.tech/gtfs_generic_eu.zip";
+const OUT_DIR        = process.env.OUT_DIR      || "site";
+const OUT_ZIP        = process.env.OUT_ZIP      || `${SLUG}_compiled.zip`;
+const OUT_REPORT     = process.env.OUT_REPORT   || "report.json";
+const OVERRIDES_PATH = process.env.OVERRIDES    || "automation/overrides.json";
+const OVERRIDES_URL  = process.env.OVERRIDES_URL|| "";
+
+/* -------------------------- overrides auto-discovery ---------------------- */
+
+// Auto-discovery candidates when OVERRIDES_URL is empty and explicit path is missing
+const OVERRIDE_CANDIDATES = (slug) => [
+  // slug-specific first
+  `automation/overrides-${slug}.json`,
+  `overrides-${slug}.json`,
+  // generic fallbacks
+  `automation/overrides.json`,
+  `overrides.json`,
+];
+
+async function fileExists(p) {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /* ------------------------------ metrics ---------------------------------- */
 const METRICS = {
@@ -59,20 +80,45 @@ const toHHMMSS = (s) => {
 };
 
 /* ------------------------------ overrides -------------------------------- */
+/**
+ * Loads overrides as text and returns { text, source }.
+ * Resolution order:
+ *  1) OVERRIDES_URL (remote)
+ *  2) OVERRIDES_PATH (local, if exists)
+ *  3) Auto-discovery by FEED_SLUG:
+ *       - automation/overrides-<slug>.json
+ *       - overrides-<slug>.json
+ *       - automation/overrides.json
+ *       - overrides.json
+ *  4) none => "{}"
+ */
 async function loadOverridesText() {
   if (OVERRIDES_URL) {
     console.log(`Overrides: fetching from ${OVERRIDES_URL}`);
     const r = await fetch(OVERRIDES_URL);
     if (!r.ok) throw new Error(`Failed to fetch overrides: HTTP ${r.status}`);
-    return await r.text();
+    const text = await r.text();
+    return { text, source: OVERRIDES_URL };
   }
-  try {
-    console.log(`Overrides: reading ${OVERRIDES_PATH}`);
-    return await fs.readFile(OVERRIDES_PATH, "utf8");
-  } catch {
-    console.log("Overrides: none found (continuing with no rules)");
-    return "{}";
+
+  const explicitPath = process.env.OVERRIDES || "automation/overrides.json";
+  if (await fileExists(explicitPath)) {
+    console.log(`Overrides: reading ${explicitPath}`);
+    const text = await fs.readFile(explicitPath, "utf8");
+    return { text, source: explicitPath };
   }
+
+  const candidates = OVERRIDE_CANDIDATES(SLUG);
+  for (const p of candidates) {
+    if (await fileExists(p)) {
+      console.log(`Overrides: auto-selected ${p}`);
+      const text = await fs.readFile(p, "utf8");
+      return { text, source: p };
+    }
+  }
+
+  console.log("Overrides: none found (continuing with no rules)");
+  return { text: "{}", source: "" };
 }
 
 const KEY_DELIMS = ["::","|","/","—","–","-"];
@@ -152,7 +198,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     if (!stopTimesByTrip.has(st.trip_id)) stopTimesByTrip.set(st.trip_id, []);
     stopTimesByTrip.get(st.trip_id).push(st);
   }
-  for (const [tid, arr] of stopTimesByTrip) arr.sort((a,b)=>Number(a.stop_sequence)-Number(b.stop_sequence));
+  for (const [, arr] of stopTimesByTrip) arr.sort((a,b)=>Number(a.stop_sequence)-Number(b.stop_sequence));
 
   const outTrips = [];
   const outStopTimes = [];
@@ -296,7 +342,8 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
 
     trips.forEach(t => { t.trip_headsign ??= ""; t.shape_id ??= ""; t.direction_id ??= ""; });
 
-    const overridesText = await loadOverridesText();
+    const { text: overridesText, source: effectiveOverridesSource } = await loadOverridesText();
+
     let overridesRaw = {};
     try {
       const j = JSON.parse(overridesText || "{}");
@@ -315,9 +362,8 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       overridesRaw = {};
     }
 
-    console.log("[overrides] source =", OVERRIDES_URL || OVERRIDES_PATH);
+    console.log("[overrides] source =", effectiveOverridesSource || "(none)");
     console.log("[overrides] slug =", SLUG, "| top keys =", Object.keys(overridesRaw || {}).slice(0,5));
-    // ------------------------------------------------------
 
     const restrictions = importOverridesTolerant(overridesRaw, stopTimes);
 
@@ -405,7 +451,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       warnings: METRICS.warnings,
       generatedAt: new Date().toISOString(),
       source: SRC_URL,
-      overridesSource: OVERRIDES_URL || OVERRIDES_PATH,
+      overridesSource: effectiveOverridesSource || "",
       artifacts: { zip: path.join(OUT_DIR, OUT_ZIP) },
     };
 
