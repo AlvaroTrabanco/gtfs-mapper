@@ -1,53 +1,17 @@
 import { unstable_batchedUpdates } from "react-dom";
 import { useEffect, useMemo, useState, useCallback, useRef, startTransition } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Polyline,
-  CircleMarker,
-  useMapEvents,
-  useMap,
-  Pane,
-  Marker,
-  GeoJSON,
-  ZoomControl,
-  ScaleControl,
-  AttributionControl,
-  LayerGroup as RLLayerGroup,
-} from "react-leaflet";import L from "leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, useMapEvents, useMap, Pane, Marker, GeoJSON, ZoomControl, ScaleControl, AttributionControl } from "react-leaflet";
+import L from "leaflet";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import * as Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import PatternMatrix from "./PatternMatrix";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import type * as React from "react";
-import type { ReactElement } from "react";
-import type { LeafletMouseEvent, LayerGroup as LeafletLayerGroup } from "leaflet";
-
+import type { JSX } from "react";
 
 // ---- groupStopTimes cache (module-scope, safe across renders) ----
-type StopTime = {
-  _uid: string;                           // ← stable, internal row id
-  trip_id: string;
-  arrival_time: string;
-  departure_time: string;
-  stop_id: string;
-  stop_sequence: number;
-  pickup_type?: number;
-  drop_off_type?: number;
-};
-
-// Stop_times rows used only for compiling/exporting (no UI row id)
-type ExportStopTime = {
-  trip_id: string;
-  arrival_time: string;
-  departure_time: string;
-  stop_id: string;
-  stop_sequence: number;
-  pickup_type?: number;
-  drop_off_type?: number;
-};
+type StopTime = { trip_id: string; arrival_time: string; departure_time: string; stop_id: string; stop_sequence: number; pickup_type?: number; drop_off_type?: number };
 // Use ReadonlyArray as WeakMap key to discourage mutation assumptions
 const STOP_TIMES_GROUP_CACHE: WeakMap<ReadonlyArray<StopTime>, Map<string, StopTime[]>> = new WeakMap();
 
@@ -58,7 +22,7 @@ function throttle<T extends (...args: any[]) => void>(fn: T, wait = 1500) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastArgs: Parameters<T> | null = null;
 
-  const throttled = function(this: unknown, ...args: Parameters<T>) {
+  return function throttled(this: unknown, ...args: Parameters<T>) {
     if (DEBUG) console.debug('[throttle] tick');
     const now = Date.now();
     const remaining = wait - (now - last);
@@ -75,11 +39,7 @@ function throttle<T extends (...args: any[]) => void>(fn: T, wait = 1500) {
         if (lastArgs) { fn.apply(this, lastArgs); lastArgs = null; }
       }, remaining);
     }
-  } as T & { cancel?: () => void };
-
-  (throttled as any).cancel = () => { if (timer) { clearTimeout(timer); timer = null; } lastArgs = null; };
-
-  return throttled;
+  } as T;
 }
 
 /** ---------- Misc ---------- */
@@ -669,8 +629,6 @@ function PaginatedEditableTable<T extends Record<string, any>>({
   emptyText = "No rows.",
   onSearchTyping,
   badTimeKeys,
-  draggableRows = false,
-  onReorderRow,
 }: {
   title: string;
   onSearchTyping?: (value: string) => void
@@ -698,8 +656,6 @@ function PaginatedEditableTable<T extends Record<string, any>>({
   headerExtras?: React.ReactNode;
   emptyText?: string;
   badTimeKeys?: Set<string>;
-  draggableRows?: boolean;
-  onReorderRow?: (args: { fromGlobalIndex: number; toGlobalIndex: number }) => void;
 }) {
 
   const editCell = (globalIndex: number, key: string, v: any) => {
@@ -721,7 +677,7 @@ function PaginatedEditableTable<T extends Record<string, any>>({
   );
 
   const cols = useMemo<string[]>(
-    () => (rows.length ? Object.keys(rows[0] as object).filter(k => k !== "_uid") : []),
+    () => (rows.length ? Object.keys(rows[0] as object) : []),
     [rows]
   );
 
@@ -752,11 +708,7 @@ function PaginatedEditableTable<T extends Record<string, any>>({
   const start = (safePage - 1) * pageSize;
   const pageIdx = filteredIdx.slice(start, start + pageSize);
 
-  // Reset page when the filter changes or the number of rows changes,
-  // not on every keystroke edit which replaces the rows array reference.
-  useEffect(() => {
-    setPage(1);
-  }, [pageSize, query, visibleIndex, rows.length]);
+  useEffect(() => { setPage(1); }, [pageSize, query, visibleIndex, rows]);
 
   // ✅ Prevent crashes if indices go stale — only keep valid ones
   const safePageIdx = useMemo(
@@ -832,33 +784,14 @@ function PaginatedEditableTable<T extends Record<string, any>>({
                 
                 return (
                   <tr
-                    key={(r as any)._uid ?? (
+                    key={
                       (r as any).id ??
                       ((r as any).trip_id && (r as any).stop_sequence
                         ? `st-${(r as any).trip_id}-${(r as any).stop_sequence}`
                         : (r as any).trip_id ??
                           (r as any).stop_id ??
                           `gi-${gi}`)
-                    )}
-                    draggable={draggableRows}
-                    onDragStart={(e) => {
-                      if (!draggableRows) return;
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", String(gi)); // global index in current rows
-                    }}
-                    onDragOver={(e) => {
-                      if (!draggableRows) return;
-                      e.preventDefault(); // allow drop
-                    }}
-                    onDrop={(e) => {
-                      if (!draggableRows || !onReorderRow) return;
-                      e.preventDefault();
-                      const fromGi = Number(e.dataTransfer.getData("text/plain"));
-                      const toGi = gi;
-                      if (Number.isFinite(fromGi) && Number.isFinite(toGi) && fromGi !== toGi) {
-                        onReorderRow({ fromGlobalIndex: fromGi, toGlobalIndex: toGi });
-                      }
-                    }}
+                    }
                     onClick={(e) => {
                       const t = e.target as HTMLElement | null;
                       const tag = t?.tagName;
@@ -890,38 +823,35 @@ function PaginatedEditableTable<T extends Record<string, any>>({
 
                     {cols.map((c) => (
                       <td key={c} style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
-                        {cellRenderer
-                          ? cellRenderer({ row: r, column: c, globalIndex: gi, onEdit: (k, v) => editCell(gi, k, v) })
-                          : (() => {
-                              const val = (r as any)[c] ?? "";
-                              const keyMaybe =
-                                (r as any).trip_id && (r as any).stop_sequence
-                                  ? `${(r as any).trip_id}::${(r as any).stop_sequence}`
-                                  : null;
-                              const bad = keyMaybe ? (badTimeKeys?.has(keyMaybe) ?? false) : false;
-                              return (
-                                <input
-                                  value={val}
-                                  name={`cell-${c}`}
-                                  autoComplete="off"
-                                  style={{
-                                    width: "100%",
-                                    outline: "none",
-                                    border: `1px solid ${bad ? "#ff5252" : "#e8e8e8"}`,
-                                    padding: "4px 6px",
-                                    borderRadius: 8,
-                                    background: "white",
-                                  }}
-                                  onChange={(e) => editCell(gi, c, e.target.value)}
-                                  onFocus={selectOnCellFocus && onRowClick ? (e) => onRowClick(r, e as any) : undefined}
-                                  list={c === "stop_id" ? "gtfs-stop-ids" : c === "stop_name" ? "gtfs-stop-names" : undefined}
-                                  placeholder={c === "stop_id" || c === "stop_name" ? "type to search…" : undefined}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onKeyDown={(e) => e.stopPropagation()}
-                                />
-                              );
-                            })()}
+                        {(() => {
+                          const val = (r as any)[c] ?? "";
+                          const keyMaybe =
+                            (r as any).trip_id && (r as any).stop_sequence
+                              ? `${(r as any).trip_id}::${(r as any).stop_sequence}`
+                              : null;
+                          const bad = keyMaybe ? (badTimeKeys?.has(keyMaybe) ?? false) : false;
+                          return (
+                            <input
+                              value={val}
+                              name={`cell-${c}`}
+                              autoComplete="off"
+                              style={{
+                                width: "100%",
+                                outline: "none",
+                                border: "1px solid " + (bad ? "#ff5252" : "#e8e8e8"),
+                                padding: "4px 6px",
+                                borderRadius: 8,
+                                background: "white",
+                              }}
+                              onChange={(e) => editCell(gi, c, e.target.value)}
+                              onFocus={selectOnCellFocus && onRowClick ? (e) => onRowClick(r, e as any) : undefined}
+                              list={c === "stop_id" ? "gtfs-stop-ids" : c === "stop_name" ? "gtfs-stop-names" : undefined}
+                              placeholder={c === "stop_id" || c === "stop_name" ? "type to search…" : undefined}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          );
+                        })()}
                       </td>
                     ))}
 
@@ -1052,15 +982,17 @@ function MapClickMenuTrigger({
       if (p.distanceTo(downPtRef.current) > DRAG_TOL) movedRef.current = true;
     },
     click(e) {
+      if (stopsAreHidden) return;
+      if (!active) return;          // ← NEW: only react when a stop is selected
       if (movedRef.current) return;
 
       const oe = (e as any).originalEvent as MouseEvent | undefined;
       const target = (oe?.target as HTMLElement) ?? null;
 
-      // ignore clicks on interactive layers entirely
+      // ignore clicks on interactive layers
       if (isInteractiveTarget(target)) return;
 
-      // 1) Always allow background deselect, regardless of stop/menu state
+      // background click while a route is selected → deselect
       if (hasRouteSelection) {
         if (DEBUG) console.debug("[map] background click → route deselect");
         onDeselect();
@@ -1068,12 +1000,7 @@ function MapClickMenuTrigger({
         return;
       }
 
-      // 2) From here on, opening the Add/Move menu is only meaningful when a stop is selected,
-      //    and when stops are visible.
-      if (stopsAreHidden) return;
-      if (!active) return;
-
-      // 3) Only then, possibly open the Add/Move menu (zoom guard)
+      // otherwise open the Add/Move menu (only if zoomed in enough)
       if (map.getZoom() >= MIN_ADD_ZOOM) {
         const p = map.latLngToContainerPoint(e.latlng);
         if (DEBUG) {
@@ -1107,7 +1034,7 @@ function AddStopOnMapClick({
   useMapEvents({
     click(e) {
       if (disabled) return; // ⛔ don’t add stops while selection/menu is active
-      if ((e as any).propagatedFrom) return;
+
       const oe = (e as any).originalEvent as MouseEvent | undefined;
 
       // If a marker/vector handled this, bail.
@@ -1267,7 +1194,7 @@ export default function App() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [stopTimes, setStopTimes] = useState<StopTime[]>([]);
   const [shapePts, setShapePts] = useState<ShapePt[]>([]);
-  
+  const stopTimesAllRef = useRef<StopTime[] | null>(null);
   const stopsById = useMemo(() => {
     const m = new Map<string, Stop>();
     for (const s of stops) m.set(s.stop_id, s);
@@ -1283,38 +1210,6 @@ export default function App() {
     for (const [k, arr] of m) m.set(k, arr.slice().sort((a,b)=>a.seq-b.seq));
     return m;
   }, [shapePts]);
-
-
-  // ---- Lazy stop_times cache + last applied route (must be above any effects using them)
-  const stopTimesAllRef = useRef<StopTime[] | null>(null);
-  const lastAppliedRidRef = useRef<string | null>(null);
-
-
-  // App.tsx — keep deps minimal to avoid unnecessary re-creations
-  const loadStopTimesForRoute = useCallback<(rid?: string) => void>((rid) => {
-    const routeId = rid ?? resolveActiveRouteId();
-    const all = stopTimesAllRef.current;
-
-    if (!routeId || !all?.length) return;
-
-    const tids = new Set(trips.filter(t => t.route_id === routeId).map(t => t.trip_id));
-    if (!tids.size) return;
-
-    const run = () => {
-      const filtered = all.filter(st => tids.has(st.trip_id));
-      startTransition(() => setStopTimes(filtered));
-      lastAppliedRidRef.current = routeId;
-      setBanner({ kind: "success", text: `Loaded ${filtered.length} stop_times for ${routeId}.` });
-      window.setTimeout(() => setBanner(null), 1400);
-    };
-
-    if ("requestIdleCallback" in window) {
-      (window as any).requestIdleCallback(run, { timeout: 120 });
-    } else {
-      setTimeout(run, 0);
-    }
-  }, [trips, resolveActiveRouteId, setStopTimes]);
-
 
   // === Stop usage index (stop_id -> Set<route_id>) ===
   const [stopUsageIndex, setStopUsageIndex] = useState<Map<string, Set<string>>>(new Map());
@@ -1337,14 +1232,11 @@ export default function App() {
 
   // ⬆️ Put this near the top of the route helpers, before any usage.
   function routeHasShapes(routeId: string): boolean {
-    const rTrips = trips.filter(t => t.route_id === routeId);
-    if (!rTrips.length) return false;
-    for (const t of rTrips) {
-      const sid = String(t.shape_id ?? (project?.extras?.shapeByRoute ?? {} as ShapeByRoute)[routeId] ?? "").trim();
-      if (!sid) continue;
-      if (shapePts.some(p => String(p.shape_id) === sid)) return true;
-    }
-    return false;
+    const sidFromMap = (project?.extras?.shapeByRoute ?? ({} as ShapeByRoute))[routeId];
+    const sidFromTrip = trips.find(t => t.route_id === routeId)?.shape_id;
+    const sid = (sidFromTrip ?? sidFromMap ?? "").trim();
+    if (!sid) return false;
+    return shapePts.some(p => String(p.shape_id) === sid);
   }
 
   // Recompute a route’s geometry from its trips’ stop order and updated stop coords
@@ -1446,12 +1338,6 @@ export default function App() {
   /** UI */
   const [showRoutes, setShowRoutes] = useState<boolean>(true);
 
-  // Global "show all stop_times when no route is selected"
-  const [showStopTimesAll, setShowStopTimesAll] = useState(false);
-
-  // Collapsible Stop Times panel (closed by default)
-  const [isStopTimesOpen, setIsStopTimesOpen] = useState<boolean>(false);
-
   const [showStops, setShowStops] = useState<boolean>(true);
 
   const autoBuildSuppressedRef = useRef<Set<string>>(new Set());
@@ -1488,62 +1374,6 @@ export default function App() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set()); // NEW multi-select
 
-  // Routes hidden via the "Hide" UI — purely visual, never deletes data.
-  const [hiddenRouteIds, setHiddenRouteIds] = useState<Set<string>>(new Set());
-
-  // Toggle hide for a set of route_ids (reversible)
-  function toggleHideRoutes(routeIds: Set<string>, nextHidden?: boolean) {
-    if (!routeIds.size) return;
-    setHiddenRouteIds(prev => {
-      const out = new Set(prev);
-      routeIds.forEach(rid => {
-        const hide = nextHidden ?? !out.has(rid);
-        if (hide) out.add(rid); else out.delete(rid);
-      });
-
-      // Invalidate cached polylines for those routes so redraw is instant
-      routeIds.forEach(rid => routePolylineCacheRef.current.delete(rid));
-
-      // Use a stable capture of the *next* hidden set (not state) inside rAF
-      const nextHiddenSet = out;
-
-      requestAnimationFrame(() => {
-        try {
-          pushVisibleRoutes(
-            mapBounds
-              ? ((): string[] => {
-                  const padded = mapBounds.pad(0.10);
-                  const visible = new Set<string>();
-                  for (const r of routes) {
-                    const geom = getRouteGeom(r.route_id);
-                    if (geom?.bbox?.intersects?.(padded)) visible.add(r.route_id);
-                  }
-                  // filter out hidden using the computed next set
-                  return Array.from(visible).filter(rid => !nextHiddenSet.has(rid));
-                })()
-              : Array.from(routeGeomCacheRef.current.keys())
-          );
-        } catch {}
-      });
-
-      return out;
-    });
-  }
-
-  // Convenience wrappers for your buttons
-  function hideSelectedRoutes() {
-    const sel = new Set<string>(selectedRouteIds);
-    if (selectedRouteId) sel.add(selectedRouteId);
-    toggleHideRoutes(sel, true);
-    // Don’t keep a hidden route “selected”
-    setSelectedRouteId(null);
-    setSelectedRouteIds(new Set());
-  }
-
-  function unhideAllRoutes() {
-    setHiddenRouteIds(new Set());
-  }
-
   // True if there's either a single selection or any multi-selection
   const hasSelection = selectedRouteId !== null || selectedRouteIds.size > 0;
 
@@ -1558,8 +1388,6 @@ export default function App() {
   
 
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
-  // Only allow map clicks to move a stop when this is explicitly enabled
-  const [relocateMode, setRelocateMode] = useState<"map" | null>(null);
 
   // ⛔ Disable "Add stop on background click" when something is selected or a menu is open
   const disableBackgroundAddStop =
@@ -1747,10 +1575,7 @@ const visibleRouteIds = useMemo<string[]>(() => {
 
   // ⛔ Early-out while bounds are null/transitioning to avoid full recompute storms
   if (!mapBounds) {
-    // On first paint the cache is empty → fall back to all routes so something renders.
-    const cached = Array.from(routeGeomCacheRef.current.keys());
-    if (cached.length) return cached;
-    return routes.length ? routes.map(r => r.route_id) : [];
+    return Array.from(routeGeomCacheRef.current.keys()); // reuse cached route ids
   }
 
   // Too zoomed out — don’t bother
@@ -1774,9 +1599,7 @@ const visibleRouteIds = useMemo<string[]>(() => {
     const geom = getRouteGeom(r.route_id);
     if (geom?.bbox?.intersects?.(padded)) out.add(r.route_id);
   }
-    // Drop hidden ones (reversible hide)
-  const ids = Array.from(out).filter(rid => !hiddenRouteIds.has(rid));
-  return ids;
+  return Array.from(out);
 }, [
   showRoutes,
   canDrawRoutes,
@@ -1788,35 +1611,22 @@ const visibleRouteIds = useMemo<string[]>(() => {
   mapBounds,
   debouncedBoundsKey,
   debouncedZoom,
-  mapZoom,
-  hiddenRouteIds
+  mapZoom
 ]);
 
 
 
 // ⬇️ Immediate response to the "Show routes" toggle (bypass throttle)
-// ⬇️ Immediate response to the "Show routes" toggle (no stale snapshots)
 useEffect(() => {
-  if (!showRoutes) {
-    // Hide instantly
-    setVisibleRoutesThrottled([]);
-    return;
+  if (showRoutes) {
+    setCanDrawRoutes(true);
+    setVisibleRoutesThrottled(visibleRouteIds); // instant show on toggle
+  } else {
+    setVisibleRoutesThrottled([]);              // instant hide on toggle
   }
-
-  // Showing again:
-  setCanDrawRoutes(true);
-
-  // Force rebuild of SVG paths after being hidden (panes may have been torn down)
-  routePolylineCacheRef.current.clear();
-
-  // Push a FRESH list of visible ids on the next frame,
-  // when `visibleRouteIds` reflects the new showRoutes=true state.
-  requestAnimationFrame(() => {
-    try {
-      pushVisibleRoutes(visibleRouteIds);
-    } catch {}
-  });
-}, [showRoutes, pushVisibleRoutes, visibleRouteIds]);
+  // Only react to the toggle itself here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [showRoutes]);
 
 
 
@@ -1824,20 +1634,6 @@ useEffect(() => {
 useEffect(() => {
   if (canDrawRoutes) pushVisibleRoutes(visibleRouteIds);
 }, [visibleRouteIds, pushVisibleRoutes, canDrawRoutes]);
-
-useEffect(() => {
-  // If nothing is on screen yet but we do have routes, seed the list once.
-  if (showRoutes && visibleRoutesThrottled.length === 0 && routes.length > 0) {
-    pushVisibleRoutes(
-      mapBounds
-        ? visibleRouteIds
-        : (routeGeomCacheRef.current.size
-            ? Array.from(routeGeomCacheRef.current.keys())
-            : routes.map(r => r.route_id))
-    );
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [showRoutes, routes.length]);
 
   // keep a live Leaflet map ref + one-shot guard for first fit
   const mapRef = useRef<L.Map | null>(null);
@@ -1900,58 +1696,42 @@ useEffect(() => {
 
 
   // Only draw stops that are in view and when zoomed in enough
-const visibleStops = useMemo(() => {
-  const isFiniteCoord = (lat: any, lon: any) =>
-    Number.isFinite(Number(lat)) && Number.isFinite(Number(lon));
+  const visibleStops = useMemo(() => {
+    // Always keep explicitly selected stop(s) visible
+    const forcedIds = new Set<string>();
+    if (selectedStopId) forcedIds.add(selectedStopId);
+    if (selectedStopIdFromRow) forcedIds.add(selectedStopIdFromRow);
 
-  // Always keep explicitly selected stop(s) visible
-  const forcedIds = new Set<string>();
-  if (selectedStopId) forcedIds.add(selectedStopId);
-  if (selectedStopIdFromRow) forcedIds.add(selectedStopIdFromRow);
+    // If the toggle is OFF, only render forced (selected) stops and ignore bounds/zoom
+    if (!showStops) {
+      if (!forcedIds.size) return [];
+      return stops.filter(s => forcedIds.has(s.stop_id));
+    }
 
-  // Toggle OFF → only forced & valid coords
-  if (!showStops) {
-    if (!forcedIds.size) return [];
-    return stops.filter(s => forcedIds.has(s.stop_id) && isFiniteCoord(s.stop_lat, s.stop_lon));
-  }
+    // If we’re too zoomed out or have no bounds, still show forced stops
+    if (!mapBounds || mapZoom < MIN_STOP_ZOOM) {
+      if (!forcedIds.size) return [];
+      return stops.filter(s => forcedIds.has(s.stop_id));
+    }
 
-  // Too zoomed out / no bounds → only forced & valid coords
-  if (!mapBounds || mapZoom < MIN_STOP_ZOOM) {
-    if (!forcedIds.size) return [];
-    return stops.filter(s => forcedIds.has(s.stop_id) && isFiniteCoord(s.stop_lat, s.stop_lon));
-  }
+    const b = mapBounds;
 
-  const b = mapBounds;
+    // Base scope: if scoping is on, keep route-related stops OR any forced ones
+    const base = scopedKeep
+      ? stops.filter(s => scopedKeep.keepStopIds.has(s.stop_id) || forcedIds.has(s.stop_id))
+      : stops;
 
-  // Base scope: if scoping is on, keep route-related stops OR forced ones
-  const base = scopedKeep
-    ? stops.filter(s =>
-        (scopedKeep.keepStopIds.has(s.stop_id) || forcedIds.has(s.stop_id)) &&
-        isFiniteCoord(s.stop_lat, s.stop_lon)
-      )
-    : stops.filter(s => isFiniteCoord(s.stop_lat, s.stop_lon));
+    // Cull to viewport, but *always* include forced stops even if they’re outside bounds
+    const inView = base.filter(s => b.contains(L.latLng(s.stop_lat, s.stop_lon)));
+    if (!forcedIds.size) return inView;
 
-  // Cull to viewport, but *always* include forced stops even if outside
-  const inView = base.filter(s => b.contains(L.latLng(s.stop_lat, s.stop_lon)));
+    const forced = stops.filter(s => forcedIds.has(s.stop_id));
+    // Merge (avoid duplicates)
+    const outMap = new Map<string, Stop>();
+    [...inView, ...forced].forEach(s => outMap.set(s.stop_id, s));
+    return Array.from(outMap.values());
+  }, [showStops, mapBounds, mapZoom, stops, scopedKeep, selectedStopId, selectedStopIdFromRow]);
 
-  if (!forcedIds.size) return inView;
-
-  const forced = stops.filter(
-    s => forcedIds.has(s.stop_id) && isFiniteCoord(s.stop_lat, s.stop_lon)
-  );
-
-  const outMap = new Map<string, Stop>();
-  [...inView, ...forced].forEach(s => outMap.set(s.stop_id, s));
-  return Array.from(outMap.values());
-}, [
-  showStops,
-  mapBounds,
-  mapZoom,
-  stops,
-  scopedKeep,
-  selectedStopId,
-  selectedStopIdFromRow,
-]);
 
 
 
@@ -2036,14 +1816,11 @@ const visibleStops = useMemo(() => {
 
     const baseRow = inTrip.find(r => r.stop_sequence === afterSeq) ||
                     (inTrip.length ? inTrip[inTrip.length - 1] : undefined);
-
-    // Default new times: +5 minutes after the reference (or 08:00 if none)
     const baseDep = baseRow?.departure_time || "08:00:00";
     const [hh, mm] = baseDep.split(":");
     const hhN = Number(hh) || 8;
     const mmN = Number(mm) || 0;
     const plus5 = `${String(hhN).padStart(2,"0")}:${String((mmN + 5) % 60).padStart(2,"0")}:00`;
-
     const newSeq  = afterSeq + 1;
 
     setStopTimes(prev => {
@@ -2054,11 +1831,10 @@ const visibleStops = useMemo(() => {
         }
       }
       next.push({
-        _uid: uuidv4(),
-        trip_id,                    // ✅ use the function arg
-        stop_id,                    // ✅ actually insert the chosen stop
+        trip_id,
+        stop_id,
         stop_sequence: newSeq,
-        arrival_time: plus5,        // small sensible default
+        arrival_time: baseDep,
         departure_time: plus5,
         pickup_type: 0,
         drop_off_type: 0,
@@ -2067,13 +1843,6 @@ const visibleStops = useMemo(() => {
     });
 
     setSelectedStopTime({ trip_id, stop_sequence: newSeq });
-
-    // Keep the route active so the panel stays scoped & visible
-    const routeIdForTrip = trips.find(t => t.trip_id === trip_id)?.route_id;
-    if (routeIdForTrip) {
-      setSelectedRouteId(routeIdForTrip);
-      setSelectedRouteIds(new Set([routeIdForTrip]));
-    }
   }
 
 
@@ -2125,6 +1894,7 @@ const visibleStops = useMemo(() => {
   };
 
   const addBlankStopTimeRow = () => {
+    // Prefer the trip chosen in the dropdown, else fall back to existing logic
     const preferredTripId = activeTripIdForTimes ?? undefined;
 
     const { targetTrip, afterSeq } = ((): { targetTrip?: Trip; afterSeq: number } => {
@@ -2138,6 +1908,7 @@ const visibleStops = useMemo(() => {
           return { targetTrip: t, afterSeq: inTrip.length ? inTrip[inTrip.length - 1].stop_sequence : 0 };
         }
       }
+      // fallback to your existing picker
       return pickTargetTripAndAfterSeq();
     })();
 
@@ -2157,12 +1928,11 @@ const visibleStops = useMemo(() => {
         }
       }
       next.push({
-        _uid: uuidv4(),
-        trip_id: targetTrip.trip_id,  // ✅ concrete id
-        stop_id: "",                  // blank row
-        departure_time: "08:00:00",   // ✅ sane default (HH:MM:SS)
-        arrival_time:   "08:00:00",
+        trip_id: targetTrip.trip_id,
+        stop_id: "",
         stop_sequence: newSeq,
+        arrival_time: "",
+        departure_time: "",
         pickup_type: 0,
         drop_off_type: 0,
       });
@@ -2482,7 +2252,7 @@ function buildShape_Ferry_forTrip(trip_id: string) {
 
   // Memoized on-screen polylines for performance (no extra file/component)
   // 🧠 Cache each route’s polylines so React doesn’t rebuild thousands of SVG paths on every deselect
-  const routePolylineCacheRef = useRef<Map<string, React.ReactNode[]>>(new Map());
+  const routePolylineCacheRef = useRef<Map<string, JSX.Element[]>>(new Map());
 
   // Ephemeral (non-persisted) shapes that only exist for visualization.
   // Key: route_id -> array of [lat, lng] points forming straight segments between stops.
@@ -2614,12 +2384,11 @@ const routePolylines = useMemo(() => {
     // nothing here
   }
 }, [
-   showRoutes,
-   canDrawRoutes,
-   visibleRoutesThrottled,
-   getRouteGeom,
-   routeColorMemo,
-   routeHasShapes,
+  showRoutes,
+  canDrawRoutes,
+  visibleRoutesThrottled,
+  getRouteGeom,
+  routeColorMemo,
 ]);
 
   useEffect(() => {
@@ -3027,7 +2796,6 @@ const routePolylines = useMemo(() => {
           // IMPORTANT: lazy stop_times
           if (stopTimesRaw.length) {
             stopTimesAllRef.current = stopTimesRaw.map((r: any) => ({
-              _uid: uuidv4(), // ← stable id
               trip_id: String(r.trip_id ?? ""),
               arrival_time: String(r.arrival_time ?? ""),
               departure_time: String(r.departure_time ?? ""),
@@ -3094,8 +2862,6 @@ const routePolylines = useMemo(() => {
         });
 
         setBanner({ kind: "success", text: "GTFS zip imported. Select a route to load its stop_times. Don’t close the tab until you export or save." });
-        setIsStopTimesOpen(false);
-        lastAppliedRidRef.current = null;
         setTimeout(() => setBanner(null), 2400);
       } catch (e) {
         console.error(e);
@@ -3241,156 +3007,47 @@ const routePolylines = useMemo(() => {
     return stopsById.get(id)?.stop_name ?? "";
   }, [stopsById]);
 
-  // --- stop_times custom cell renderer: keeps stop_id <-> stop_name sane without blurring inputs ---
-const renderStopTimesCell = useCallback((
-  args: {
-    row: any;
-    column: string;
-    globalIndex: number;
-    onEdit: (key: string, value: any) => void;
-  }
-) => {
-  const { row, column, globalIndex, onEdit } = args;
-
-  // default input (fallback)
-  const renderDefault = () => (
-    <input
-      value={row[column] ?? ""}
-      name={`cell-${column}`}
-      autoComplete="off"
-      style={{
-        width: "100%",
-        outline: "none",
-        border: "1px solid #e8e8e8",
-        padding: "4px 6px",
-        borderRadius: 8,
-        background: "white",
-      }}
-      onChange={(e) => onEdit(column, e.target.value)}
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-    />
-  );
-
-  // Only special-case stop_id / stop_name. Everything else uses default.
-  if (column !== "stop_id" && column !== "stop_name") return renderDefault();
-
-  const currentId = String(row.stop_id ?? "");
-  const currentName = String(row.stop_name ?? stopIdToName(currentId));
-
-  const commitPair = (nextId: string, nextName: string) => {
-    // Update both fields without re-mounting the input:
-    // call onEdit twice; the parent setState merges object keys in place.
-    onEdit("stop_id", nextId);
-    onEdit("stop_name", nextName);
-  };
-
-  const handleChange = (raw: string) => {
-    // Map through tolerant normalizer
-    const prev = { stop_id: currentId };
-    const pair =
-      column === "stop_id"
-        ? normalizeStopIdAndName({ stop_id: raw, stop_name: currentName }, prev)
-        : normalizeStopIdAndName({ stop_id: currentId, stop_name: raw }, prev);
-
-    commitPair(pair.stop_id, pair.stop_name ?? "");
-  };
-
-  const listId = column === "stop_id" ? "gtfs-stop-ids" : "gtfs-stop-names";
-  const value = column === "stop_id" ? currentId : currentName;
-
-  return (
-    <input
-      value={value ?? ""}
-      name={`cell-${column}`}
-      autoComplete="off"
-      style={{
-        width: "100%",
-        outline: "none",
-        border: "1px solid #e8e8e8",
-        padding: "4px 6px",
-        borderRadius: 8,
-        background: "white",
-      }}
-      list={listId}
-      placeholder={column === "stop_id" || column === "stop_name" ? "type to search…" : undefined}
-      onChange={(e) => handleChange(e.target.value)}
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-    />
-  );
-}, [normalizeStopIdAndName, stopIdToName]);
-
-  function normalizeStopIdAndName(
+  const normalizeStopIdAndName = (
     raw: any,
     prev?: { stop_id?: string }
-  ) {
-    // Normalize inputs
-    let stop_id = String(raw.stop_id ?? "").trim();
-    let stop_name = String(raw.stop_name ?? "").trim();
+  ) => {
+    let stop_id = String(raw.stop_id ?? "");
+    let stop_name = String(raw.stop_name ?? "");
 
-    const prev_id = String(prev?.stop_id ?? "").trim();
+    const prev_id = String(prev?.stop_id ?? "");
     const prev_name = prev_id ? (stopsById.get(prev_id)?.stop_name ?? "") : "";
 
-    const idChanged = !!stop_id && stop_id !== prev_id;
+    const idChanged   = !!stop_id && stop_id !== prev_id;
     const nameChanged = !!stop_name && stop_name !== prev_name;
 
-    // Helper: get name for an ID if we know it
-    const nameForId = (id: string) => stopsById.get(id)?.stop_name ?? "";
-
-    // Helper: get ID for a name if we know it
-    const idForName = (name: string) => stopNameToId.get(name);
-
-    // Case 1: user edited ID only → trust ID, derive name from it (if possible)
+    // If user edited ID only → trust ID, derive name from it.
     if (idChanged && !nameChanged) {
-      const derivedName = nameForId(stop_id);
-      return { stop_id, stop_name: derivedName || stop_name };
+      return { stop_id, stop_name: stopsById.get(stop_id)?.stop_name ?? "" };
     }
 
-    // Case 2: user edited name only → map to ID by name, keep the chosen name
+    // If user edited name only → map to ID by name, keep the chosen name.
     if (nameChanged && !idChanged) {
-      const fromName = idForName(stop_name);
+      const fromName = stopNameToId.get(stop_name);
       if (fromName) return { stop_id: fromName, stop_name };
-      // Unknown name → leave as-is
+      // unknown name → leave as-is (no remap)
       return { stop_id, stop_name };
     }
 
-    // Case 3 (STEP 8): user edited BOTH ID and name
+    // If both changed, prefer ID (it’s unambiguous).
     if (idChanged && nameChanged) {
-      const idViaName = idForName(stop_name);
-
-      if (idViaName && idViaName !== stop_id) {
-        // Conflict: name maps to a different ID than the typed ID.
-        // Resolution policy: trust the typed ID, and align the name to that ID if known.
-        const alignedName = nameForId(stop_id);
-        return { stop_id, stop_name: alignedName || stop_name };
-      }
-
-      // Either the name doesn't map to any ID, or it maps to the same ID.
-      // Trust the ID; if we know a canonical name for it, use that. Otherwise, keep the user's name.
-      const canonicalName = nameForId(stop_id);
-      return { stop_id, stop_name: canonicalName || stop_name };
+      return { stop_id, stop_name: stopsById.get(stop_id)?.stop_name ?? stop_name };
     }
 
-    // Case 4: nothing changed, but fill gaps if possible
-    // - If we have an ID but no name, try to fill name
-    if (stop_id && !stop_name) {
-      const derivedName = nameForId(stop_id);
-      return { stop_id, stop_name: derivedName || stop_name };
-    }
+    // Nothing changed or blanks → keep them consistent if possible.
+    const nameFromId = stopsById.get(stop_id)?.stop_name;
+    if (nameFromId) return { stop_id, stop_name: nameFromId };
 
-    // - If we have a name but no ID, try to fill ID
-    if (!stop_id && stop_name) {
-      const fromName = idForName(stop_name);
+    if (stop_name) {
+      const fromName = stopNameToId.get(stop_name);
       if (fromName) return { stop_id: fromName, stop_name };
-      return { stop_id, stop_name };
     }
-
-    // Default: return as-is
     return { stop_id, stop_name };
-  }
+  };
 
   
 
@@ -3494,11 +3151,10 @@ const renderStopTimesCell = useCallback((
 
   // Only list stop_times for the selected route (and active services, if any)
   const tripIdsForStopTimes = useMemo(() => {
-    // Use your resolver: single route → that one, else selection
-    const rid = resolveActiveRouteId();
-    if (!rid) return [];
+    if (!selectedRouteId) return [];  // ← critical: don’t render anything unless a route is selected
     const pool = trips
-      .filter(t => t.route_id === rid)
+      .filter(t => t.route_id === selectedRouteId)
+      .filter(t => activeServiceIds.size === 0 || activeServiceIds.has(t.service_id));
     return pool.map(t => t.trip_id).sort();
   }, [trips, selectedRouteId, activeServiceIds]);
 
@@ -3527,6 +3183,7 @@ const renderStopTimesCell = useCallback((
   }, [trips]);
 
 
+  
 
   
 
@@ -3544,33 +3201,6 @@ const renderStopTimesCell = useCallback((
 
     return [selIdx, ...idxs.filter(i => i !== selIdx)];
   }, [isScopedView, scopedKeep, routesScoped, routes, selectedRouteId]);
-
-  // Clear any stop selection whenever the route selection changes.
-  // This guarantees that selecting a route never highlights a stop.
-  useEffect(() => {
-    if (selectedStopId !== null) setSelectedStopId(null);
-    if (selectedStopTime !== null) setSelectedStopTime(null);
-    // Also close any contextual map menu that might be open.
-    if (mapClickMenu) setMapClickMenu(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRouteId, selectedRouteIds]);
-
-  // Force-open Stop Times and hydrate rows when a single route is selected
-  useEffect(() => {
-    // Only care about a single active route (your Summary shows that one)
-    if (!selectedRouteId) return;
-
-    // 1) make sure the Stop Times panel is open so the Summary shows the rows
-    if (!isStopTimesOpen) setIsStopTimesOpen(true);
-
-    // 2) load stop_times for that route if we have the lazy cache available
-    if (stopTimesAllRef.current?.length) {
-      loadStopTimesForRoute(selectedRouteId);
-    }
-    // If you don’t want to reload when already showing that route, you can
-    // early-return when lastAppliedRidRef.current === selectedRouteId,
-    // but loading is cheap and keeps Summary consistent.
-  }, [selectedRouteId, isStopTimesOpen, loadStopTimesForRoute]);
 
  useEffect(() => {
   const isTyping = () => {
@@ -3621,26 +3251,6 @@ const renderStopTimesCell = useCallback((
       setSelectedRouteIds(new Set());
     }
   }, [routes, selectedRouteId]);
-
-  // If selectedRouteId no longer exists, clear it (and the multiselect)
-useEffect(() => {
-  if (selectedRouteId && !routes.some(r => r.route_id === selectedRouteId)) {
-    setSelectedRouteId(null);
-    setSelectedRouteIds(new Set());
-  }
-}, [routes, selectedRouteId]);
-
-// ✅ Ensure selection stays valid when routesScoped changes (e.g., after filtering or deletion)
-useEffect(() => {
-  if (!selectedRouteIds?.size) return;
-  const present = new Set(routesScoped.map(r => r.route_id).filter(Boolean));
-  for (const id of selectedRouteIds) {
-    if (!present.has(id)) {
-      setSelectedRouteIds(new Set());
-      break;
-    }
-  }
-}, [routesScoped, selectedRouteIds]);
 
   // When selection is cleared (no single or multi), also clear any preview layer
   useEffect(() => {
@@ -3756,7 +3366,6 @@ useEffect(() => {
         const seqs = next.filter(r => r.trip_id === trip_id).map(r => num(r.stop_sequence, 0));
         const newSeq = (seqs.length ? Math.max(...seqs) : 0) + 1;
         next.push({
-          _uid: uuidv4(),                // ← add this
           trip_id,
           stop_id,
           departure_time: hhmmss,
@@ -3959,22 +3568,6 @@ const shapesRef      = useRef<HTMLDivElement | null>(null);
   // Stash original CSV text for lazy hydration at export time
 const rawCsvRef = useRef<{ stop_times?: string; shapes?: string }>({});
 
-// ↓ Add right after your selection state / refs for routes
-const isRouteSelected = (r: RouteRow) =>
-  r.route_id === selectedRouteId || selectedRouteIds.has(r.route_id);
-
-const selectSingleRoute = (rid: string) => {
-  setSelectedRouteId(rid);
-  setSelectedRouteIds(new Set([rid]));
-  setMapClickMenu(null);
-};
-
-const clearRouteSelection = () => {
-  setSelectedRouteId(null);
-  setSelectedRouteIds(new Set());
-  setMapClickMenu(null);
-};
-
 const createTripForSelectedRoute = () => {
   if (!selectedRouteId) {
     setBanner({ kind: "info", text: "Select a route first." });
@@ -4082,9 +3675,9 @@ const createTripForSelectedRoute = () => {
   function compileTripsWithOD(
     restrictions: Record<string, { mode: "normal" | "pickup" | "dropoff" | "custom"; dropoffOnlyFrom?: string[]; pickupOnlyTo?: string[] }>,
     rowsByTrip: Map<string, StopTime[]>
-  ): { trips: Trip[]; stop_times: ExportStopTime[] } {
+  ) {
     const outTrips: Trip[] = [];
-    const outStopTimes: ExportStopTime[] = [];
+    const outStopTimes: StopTime[] = [];
 
     const hhmmss = (t?: string) => toHHMMSS(t);
 
@@ -4207,12 +3800,12 @@ const createTripForSelectedRoute = () => {
     }
 
     // finalize sequences
-    const grouped = new Map<string, ExportStopTime[]>();
+    const grouped = new Map<string, StopTime[]>();
     for (const st of outStopTimes) {
       if (!grouped.has(st.trip_id)) grouped.set(st.trip_id, []);
       grouped.get(st.trip_id)!.push(st);
     }
-    const finalStopTimes: ExportStopTime[] = [];
+    const finalStopTimes: StopTime[] = [];
     for (const [, arr] of grouped) {
       arr.forEach((st, i) => (st.stop_sequence = i + 1));
       finalStopTimes.push(...arr);
@@ -4547,10 +4140,12 @@ function getOrderedStopsForRoute(
 
     if (coords.length < 2) return null;
 
-    const existingShapeId = (() => {
-      const existingShapeIds = Array.from(new Set(shapePts.map(p => p.shape_id)));
-      return nextId("shape_", existingShapeIds);
-    })();
+    const existingShapeId =
+      routeTrips.find(t => t.shape_id)?.shape_id ||
+      (() => {
+        const existingShapeIds = Array.from(new Set(shapePts.map(p => p.shape_id)));
+        return nextId("shape_", existingShapeIds);
+      })();
 
     return { shapeId: existingShapeId as string, coords };
   }
@@ -4642,19 +4237,11 @@ async function buildShapeAutoForSelectedRoute(forceCreate = false) {
         }
         win.__gtfsTempLayer.clearLayers();
 
-        const layer = Lg.polyline(points, {
-          weight: 4,
-          pane: "routesPreview",
-          interactive: false,          // ← critical: don’t steal clicks from real polylines
-        }).addTo(win.__gtfsTempLayer);
+        const layer = Lg.polyline(points, { weight: 4 }).addTo(win.__gtfsTempLayer);
         const b = layer?.getBounds?.();
         if (b && b.isValid && b.isValid()) {
           map.fitBounds(b, { padding: [28, 28], maxZoom: 10, animate: false });
         }
-        // Remove the preview shortly after zoom so nothing blocks clicks
-        setTimeout(() => {
-          try { win.__gtfsTempLayer?.clearLayers?.(); } catch {}
-        }, 150);
       }
     } catch (e) {
       console.warn("[GTFS] draw/zoom skipped:", e);
@@ -4929,20 +4516,14 @@ function StopsLayer({
   onPick: (sid: string) => void;
   enabled: boolean;     // ← NEW
 }) {
-  const data = useMemo(() => {
-    const features = stops
-      .filter(s => Number.isFinite(Number(s.stop_lat)) && Number.isFinite(Number(s.stop_lon)))
-      .map(s => ({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [s.stop_lon, s.stop_lat] },
-        properties: { stop_id: s.stop_id, selected: selectedStopId === s.stop_id }
-      }));
-
-    return {
-      type: "FeatureCollection",
-      features
-    } as const;
-  }, [stops, selectedStopId]);
+  const data = useMemo(() => ({
+    type: "FeatureCollection",
+    features: stops.map(s => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [s.stop_lon, s.stop_lat] },
+      properties: { stop_id: s.stop_id, selected: selectedStopId === s.stop_id }
+    }))
+  }), [stops, selectedStopId]);
 
   const pointToLayer = useCallback((feature: any, latlng: L.LatLng) => {
     const selected = !!feature?.properties?.selected;
@@ -4952,8 +4533,7 @@ function StopsLayer({
       color: selected ? "#df007c" : "#111",
       fillColor: selected ? "#fff" : "#fafafa",
       fillOpacity: 1,
-      interactive: enabled,        // ← only clickable when enabled
-      bubblingMouseEvents: false,  // ← prevent bubbling to the map
+      interactive: enabled,     // ← only clickable when enabled
       pane: "stopsTop",
     });
   }, [enabled]);
@@ -4961,7 +4541,6 @@ function StopsLayer({
   const onEachFeature = useCallback((feature: any, layer: L.Layer) => {
     if (!enabled) return;       // ← no handlers when disabled
     layer.on("click", (e: any) => {
-      try { L.DomEvent.stop(e); } catch {}
       const sid = feature?.properties?.stop_id as string | undefined;
       if (DEBUG) {
         const latlng = e?.latlng ?? { lat: undefined, lng: undefined };
@@ -4977,7 +4556,6 @@ function StopsLayer({
       pointToLayer={pointToLayer as any}
       onEachFeature={onEachFeature as any}
       pane="stopsTop"
-      bubblingMouseEvents={false}
     />
   );
 }
@@ -5000,69 +4578,37 @@ useEffect(() => {
   prevRidRef.current = curr;
 }, [selectedRouteId, selectedRouteIds, commitStopTimesEdits]);
 
-
-
-// --- Lazy load stop_times: route selection wins; when no selection, use Show Stop_times toggle ---
-const inFlightTokenRef = useRef<symbol | null>(null);
-
-  
-
-// helper: load ALL stop_times when no route is selected and the toggle is ON
-const loadAllStopTimes = useCallback(() => {
-  const all = stopTimesAllRef.current;
-  if (!all?.length) {
-    if (stopTimes.length) setStopTimes([]);
-    lastAppliedRidRef.current = null;
-    return;
-  }
-  startTransition(() => setStopTimes(all.slice()));
-  lastAppliedRidRef.current = "__ALL__";
-}, [stopTimes.length]);
-
+// --- Lazy load stop_times only for the selected route ---
 useEffect(() => {
   if (suppressCompute.current) return;
 
-  // Panel closed → clear and bail
-  if (!isStopTimesOpen) {
-    if (stopTimes.length) setStopTimes([]);
-    lastAppliedRidRef.current = null;
-    return;
-  }
-
   const rid = resolveActiveRouteId();
+  const all = stopTimesAllRef.current;
 
-  // A) Route selected → show that route’s rows
-  if (rid) {
-    if (lastAppliedRidRef.current === rid && stopTimes.length) return; // no-op
-    loadStopTimesForRoute(rid);
+  if (!rid || !all?.length) {
     return;
   }
 
-  // B) No route selected
-  // If user enabled "show all", load all.
-  if (showStopTimesAll) {
-    loadAllStopTimes();
+  // Build the set of trip_ids for the active route
+  const tids = new Set(trips.filter(t => t.route_id === rid).map(t => t.trip_id));
+  if (!tids.size) {
+    if (stopTimes.length) setStopTimes([]);
     return;
   }
 
-  // C) Panel just opened, no selection, and toggle is off:
-  // If we actually have data in the full cache, show ALL once so it doesn't look empty.
-  if (!lastAppliedRidRef.current && (stopTimesAllRef.current?.length ?? 0) > 0) {
-    loadAllStopTimes();
-    return;
-  }
+  const run = () => {
+    const filtered = all.filter(st => tids.has(st.trip_id));
+    startTransition(() => setStopTimes(filtered));
+  };
 
-  // Otherwise leave as-is (user may be drafting rows).
-}, [
-  isStopTimesOpen,
-  selectedRouteId,
-  selectedRouteIds,
-  trips,
-  showStopTimesAll,
-  loadAllStopTimes,
-  loadStopTimesForRoute,
-  stopTimes.length,
-]);
+  // Do this when the browser is idle (or soon)
+  if ("requestIdleCallback" in window) {
+    // @ts-ignore
+    (window as any).requestIdleCallback(run, { timeout: 120 });
+  } else {
+    setTimeout(run, 0);
+  }
+}, [selectedRouteId, selectedRouteIds, trips]); 
 
 
 
@@ -5156,19 +4702,13 @@ useEffect(() => {
             padding: "10px 14px",
             borderRadius: 12,
             boxShadow: "0 8px 24px rgba(0,0,0,.18)",
-            background:
-              banner.kind === "error" ? "#d32f2f" :
-              banner.kind === "success" ? "#2e7d32" :
-              "#111",
+            background: "#111",
             color: "#fff",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
+            opacity: .95,
+            maxWidth: 420
           }}
-          role="status"
-          aria-live="polite"
         >
-          <span>{banner.text}</span>
+          {banner.text}
         </div>
       )}
 
@@ -5377,27 +4917,29 @@ useEffect(() => {
           
 
           <button
-            className="file-btn"
+            className="btn"
             onClick={() => {
-              // Export only non-"normal" rules so the file stays small and meaningful
-              const all = (project?.extras?.restrictions ?? {}) as Record<
-                string,
-                { mode?: "normal" | "pickup" | "dropoff" | "custom"; [k: string]: any }
-              >;
+              // grab ALL rules (not just selected route)
+              const allRules = (project?.extras?.restrictions ?? {}) as Record<string, any>;
 
-              const pruned = Object.fromEntries(
-                Object.entries(all).filter(([, v]) => v && v.mode && v.mode !== "normal")
+              // keep only non-"normal" (i.e., where you actually set pickup/dropoff/custom)
+              const pruned: Record<string, any> = {};
+              for (const [k, v] of Object.entries(allRules)) {
+                if (!v) continue;
+                const m = asMode((v as any)?.mode);
+                if (m !== "normal") pruned[k] = v;
+              }
+
+              const blob = new Blob(
+                [JSON.stringify({ version: 1, rules: pruned }, null, 2)],
+                { type: "application/json" }
               );
-
-              const payload = { restrictions: pruned, stopDefaults: project?.extras?.stopDefaults ?? {} };
-              const json = JSON.stringify(payload, null, 2);
-              const blob = new Blob([json], { type: "application/json;charset=utf-8" });
-
-              const stamp = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-              saveAs(blob, `overrides-${stamp}.json`);
+              saveAs(blob, "overrides.json");
+              setBanner({ kind: "success", text: "Exported all custom pickup/dropoff rules." });
+              setTimeout(() => setBanner(null), 2000);
             }}
           >
-            Export custom stop rules
+            Export custom rules
           </button>
 
           
@@ -5468,168 +5010,166 @@ useEffect(() => {
             
             
             <MapContainer
-                center={[40.4168, -3.7038]}
-                zoom={6}
-                minZoom={2}
-                maxZoom={19}
-                preferCanvas={true}
-                zoomControl={false}
-                wheelDebounceTime={25}
-                wheelPxPerZoomLevel={80}
-                closePopupOnClick={false}
-                style={{ height: "100%", width: "100%" }}
-              >
-                {/* --- Required panes for proper z-ordering --- */}
-                <Pane name="routesPreview" style={{ zIndex: 390 }} />
-                <Pane name="routesHalo"    style={{ zIndex: 391 }} />
-                <Pane name="routesMain"    style={{ zIndex: 392 }} />
-                <Pane name="stopsTop"      style={{ zIndex: 393 }} />
-                <Pane name="routeLines"    style={{ zIndex: 397 }} />
-                <Pane name="routeHits"     style={{ zIndex: 398 }} /> 
+              center={[40.4168, -3.7038]}
+              zoom={6}
+              minZoom={2}
+              maxZoom={19}
+              preferCanvas={true}
+              zoomControl={false}
+              wheelDebounceTime={25}
+              wheelPxPerZoomLevel={80}
+              closePopupOnClick={false}
+              style={{ height: "100%", width: "100%" }}
+            >
+              {/* native map ref */}
+              <CaptureMap onReady={(m) => { mapRef.current = m; }} />
 
-                {/* native map ref */}
-                <CaptureMap onReady={(m) => { mapRef.current = m; m.invalidateSize(false); }} />
+              {/* controls */}
+              <ZoomControl position="topright" />
+              <ScaleControl position="bottomleft" />
+              <AttributionControl prefix={false} />
 
-                {/* controls */}
-                <ZoomControl position="topright" />
-                <ScaleControl />
-                <AttributionControl prefix={false} />
+              {/* busy flag */}
+              <MapInteractionBusy onChange={setIsMapBusy} />
 
-                {/* busy flag */}
-                <MapInteractionBusy onChange={setIsMapBusy} />
-
-                {/* context menu + deselect */}
-                {(!!selectedStopId || !!selectedRouteId) && (
-                  <MapClickMenuTrigger
-                    onShow={(info) => setMapClickMenu(info)}
-                    onDeselect={() => {
-                      setSelectedRouteId(null);
-                      setSelectedRouteIds(new Set());
-                    }}
-                    hasRouteSelection={!!(selectedRouteId || (selectedRouteIds && selectedRouteIds.size))}
-                    stopsAreHidden={!showStops}
-                    active={!!selectedStopId}
-                  />
-                )}
-
-                {/* relocate selected stop (kept off to force modal path) */}
-                {selectedStopId && (
-                  <RelocateSelectedStopOnMapClick
-                    enabled={relocateMode === "map"}
-                    onClick={relocateSelectedStop}
-                  />
-                )}
-
-                {/* click-to-add stop when nothing is selected */}
-                {!selectedRouteId && !selectedRouteIds.size && !selectedStopId && (
-                  <AddStopOnMapClick
-                    onAdd={(lat, lng) => addStopAt(lat, lng)}
-                    onTooFar={() => setBanner({ kind: "info", text: "Zoom in to add stops." })}
-                    disabled={disableBackgroundAddStop}
-                  />
-                )}
-
-                {/* track map state (single instance) */}
-                <MapStateTracker onChange={onMapState} />
-
-                {/* basemap tiles */}
-                <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                  attribution="© OpenStreetMap contributors © CARTO"
-                  tileSize={256}
-                  detectRetina={false}
-                  keepBuffer={2}
-                  updateWhenZooming={false}
-                  updateWhenIdle={true}
-                  maxNativeZoom={17}
+              {/* relocate selected stop */}
+              {selectedStopId && (
+                <RelocateSelectedStopOnMapClick
+                  onClick={(lat, lng) => relocateSelectedStop(lat, lng)}
+                  enabled={false} // ← keep false to force the modal path
                 />
+              )}
 
-                {/* legacy/cached routes if any */}
-                {routePolylines}
+              {/* click-to-add stop when nothing is selected */}
+              {!selectedRouteId && !selectedRouteIds.size && !selectedStopId && (
+                <AddStopOnMapClick
+                  onAdd={(lat, lng) => addStopAt(lat, lng)}
+                  onTooFar={() => setBanner({ kind: "info", text: `Zoom in to at least ${MIN_ADD_ZOOM} to add a stop.` })}
+                  disabled={disableBackgroundAddStop} // ← uses the fixed flag from step 1
+                />
+              )}
 
-                {/* stops (zoom-gated) */}
-                {showStops && mapZoom >= MIN_STOP_ZOOM && (
-                  <RLLayerGroup pane="stopsTop">
-                    <StopsLayer
-                      stops={visibleStops}
-                      selectedStopId={selectedStopId}
-                      onPick={(sid) => setSelectedStopId(sid)}
-                      enabled={showStops && !disableBackgroundAddStop}
-                    />
-                  </RLLayerGroup>
-                )}
+              {/* context menu + deselect */}
+              {(!!selectedStopId || !!selectedRouteId) && (
+                <MapClickMenuTrigger
+                  onShow={({ x, y, lat, lng }) => setMapClickMenu({ x, y, lat, lng })}
+                  onDeselect={() => setSelectedStopId(null)}
+                  hasRouteSelection={!!(selectedRouteId || (selectedRouteIds && selectedRouteIds.size))}
+                  stopsAreHidden={!showStops}
+                  active={showStops && !!selectedStopId} // ← only when a stop is selected
+                />
+              )}
 
-                {/* route polylines with wide hit area + halo */}
-                {showRoutes &&
-                  (visibleRoutesThrottled.length ? visibleRoutesThrottled : visibleRouteIds)
-                    .filter((route_id) => {
-                      if (!isScopedView) return true;
-                      if (selectedRouteIds.size) return selectedRouteIds.has(route_id);
-                      return selectedRouteId ? route_id === selectedRouteId : true;
-                    })
-                    .map((route_id) => {
-                      const geom = getRouteGeom(route_id);
-                      if (!geom) return null;
+              {/* track map state */}
+              <MapStateTracker onChange={onMapState} />
 
-                      const coords  = geom.coords;
-                      const isSel   = selectedRouteId === route_id || selectedRouteIds.has(route_id);
-                      const hasSel  = !!selectedRouteId || selectedRouteIds.size > 0;
-                      const color   = hasSel ? (isSel ? routeColorMemo(route_id) : DIM_ROUTE_COLOR) : routeColorMemo(route_id);
-                      const weight  = isSel ? 6 : 3;
-                      const opacity = hasSel ? (isSel ? 0.95 : 0.6) : 0.95;
+              {/* basemap tiles */}
+              <TileLayer
+                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                attribution="© OpenStreetMap contributors © CARTO"
+                tileSize={256}
+                detectRetina={false}
+                keepBuffer={2}
+                updateWhenZooming={false}
+                updateWhenIdle={true}
+                maxNativeZoom={17}
+              />
 
-                      const onRouteClick = (e: LeafletMouseEvent) => {
-                        if (e?.originalEvent) L.DomEvent.stop(e.originalEvent);
-                        if (isBusy) return;
-                        setSelectedRouteId(route_id);
-                        setSelectedRouteIds(new Set([route_id]));
-                      };
+              {/* vector panes (stacking) */}
+              <Pane name="routesHalo" style={{ zIndex: 399 }} />
+              <Pane name="routesMain" style={{ zIndex: 400 }} />
+              <Pane name="routesPreview" style={{ zIndex: 400 }} />
+              <Pane name="stopsTop"   style={{ zIndex: 450 }} />
+              <Pane name="routeLines" style={{ zIndex: 690 }} />
+              <Pane name="routeHits"  style={{ zIndex: 700 }} />
 
-                      return (
-                        <div key={route_id}>
-                          {/* wide invisible stroke for easy picking */}
+              {/* legacy/cached routes if any */}
+              {routePolylines}
+
+              {/* stops (zoom-gated) */}
+              {showStops && mapZoom >= MIN_STOP_ZOOM && (
+                <StopsLayer
+                  stops={visibleStops}
+                  selectedStopId={selectedStopId}
+                  onPick={(sid) => {
+                    setSelectedStopId(sid);
+                    setMapClickMenu(null);
+                  }}
+                  enabled={showStops} // ← important
+                />
+              )}
+
+              {/* route polylines with wide hit area + halo */}
+              {showRoutes &&
+                (visibleRoutesThrottled.length ? visibleRoutesThrottled : visibleRouteIds)
+                  .filter((route_id) => {
+                    if (!isScopedView) return true;
+                    if (selectedRouteIds.size) return selectedRouteIds.has(route_id);
+                    return selectedRouteId ? route_id === selectedRouteId : true;
+                  })
+                  .map((route_id) => {
+                    const geom = getRouteGeom(route_id);
+                    if (!geom) return null;
+
+                    const coords  = geom.coords as any;
+                    const isSel   = selectedRouteId === route_id || selectedRouteIds.has(route_id);
+                    const hasSel  = !!selectedRouteId || selectedRouteIds.size > 0;
+                    const color   = hasSel ? (isSel ? routeColorMemo(route_id) : DIM_ROUTE_COLOR) : routeColorMemo(route_id);
+                    const weight  = isSel ? 6 : 3;
+                    const opacity = hasSel ? (isSel ? 0.95 : 0.6) : 0.95;
+
+                    const onRouteClick = (e: any) => {
+                      if (e?.originalEvent) L.DomEvent.stop(e.originalEvent);
+                      if (isBusy) return;
+                      setSelectedRouteId(route_id);
+                      setSelectedRouteIds(new Set([route_id]));
+                    };
+
+                    return (
+                      <div key={route_id}>
+                        {/* wide invisible stroke for easy picking */}
+                        <Polyline
+                          positions={coords}
+                          pane="routeHits"
+                          smoothFactor={2}
+                          pathOptions={{
+                            color: "rgba(0,0,0,0.01)",
+                            opacity: 0.01,
+                            weight: Math.max(20, weight + 14),
+                            interactive: true,
+                          }}
+                          bubblingMouseEvents={false}
+                          eventHandlers={{ click: onRouteClick }}
+                        />
+                        {/* halo when selected */}
+                        {isSel && (
                           <Polyline
                             positions={coords}
-                            pane="routeHits"
+                            pane="routesHalo"
                             smoothFactor={2}
+                            className="route-halo-pulse"
                             pathOptions={{
-                              color: "rgba(0,0,0,0.01)",
-                              opacity: 0.01,
-                              weight: Math.max(20, weight + 14),
-                              interactive: true,
+                              color: "#ffffff",
+                              weight: 10,
+                              opacity: 0.9,
+                              lineCap: "round",
+                              interactive: false,
                             }}
-                            bubblingMouseEvents={false}
-                            eventHandlers={{ click: onRouteClick }}
                           />
-                          {/* halo when selected (under main stroke) */}
-                          {isSel && (
-                            <Polyline
-                              positions={coords}
-                              pane="routesHalo"
-                              smoothFactor={2}
-                              className="route-halo-pulse"
-                              pathOptions={{
-                                color: "#ffffff",
-                                weight: 10,
-                                opacity: 0.9,
-                                lineCap: "round",
-                                interactive: false,
-                              }}
-                            />
-                          )}
-                          {/* main stroke */}
-                          <Polyline
-                            positions={coords}
-                            pane="routeLines"
-                            smoothFactor={2}
-                            pathOptions={{ color, weight, opacity, interactive: true }}
-                            bubblingMouseEvents={false}
-                            eventHandlers={{ click: onRouteClick }}
-                          />
-                        </div>
-                      );
-                    })}
-              </MapContainer>
+                        )}
+                        {/* main stroke */}
+                        <Polyline
+                          positions={coords}
+                          pane="routeLines"
+                          smoothFactor={2}
+                          pathOptions={{ color, weight, opacity, interactive: true }}
+                          bubblingMouseEvents={false}
+                          eventHandlers={{ click: onRouteClick }}
+                        />
+                      </div>
+                    );
+                  })}
+            </MapContainer>
 
             {mapClickMenu && (
               <div
@@ -5660,13 +5200,7 @@ useEffect(() => {
                       setTimeout(() => setBanner(null), 150);
                       return;
                     }
-                    // 1) make 100% sure relocation is OFF so nothing moves
-                    setRelocateMode(null);
-                    // 2) clear any selected stop (prevents side-effects from selection-specific logic)
-                    setSelectedStopId(null);
-                    // 3) add the new stop at the menu location
-                    addStopAt(mapClickMenu!.lat, mapClickMenu!.lng);
-                    // 4) close the menu
+                    addStopAt(mapClickMenu.lat, mapClickMenu.lng);
                     setMapClickMenu(null);
                   }}
                 >
@@ -5710,80 +5244,59 @@ useEffect(() => {
       </div>
 
       
-      {/* ===== Routes table ===== */}
       <div ref={routesTableRef}>
-        <PaginatedEditableTable<RouteRow>
+        <PaginatedEditableTable
           title="routes.txt"
           rows={routesScoped}
           onChange={setRoutes}
           visibleIndex={routesVisibleIdx}
+          initialPageSize={10}
+          onSearchTyping={() => {
+            // Deselect immediately when the user types in the routes search box
+            if (selectedRouteId || selectedRouteIds.size) {
+              setSelectedRouteId(null);
+              setSelectedRouteIds(new Set());
+            }
+          }}
+          onRowClick={(row, e) => {
+            if (isBusy) return;
+            const rid = (row as RouteRow).route_id;
+            const meta = (e.metaKey || e.ctrlKey);
 
-          // Select row → single-select that route
-          onRowClick={(row) => {
-            const rid = row.route_id;
+            if (meta) {
+              setSelectedRouteIds((prev: Set<string>) => {
+                const next = new Set(prev);
+                if (next.has(rid)) next.delete(rid);
+                else next.add(rid);
+                if (next.size === 1) setSelectedRouteId(rid);
+                return next;
+              });
+            } else {
+              // ✅ Idempotent single-select: don’t deselect if clicking same route again
+              setSelectedRouteIds(new Set([rid]));
+              setSelectedRouteId(prev => (prev === rid ? prev : rid));
+            }
+          }}
+          selectedPredicate={(r) => {
+            const rid = (r as RouteRow).route_id;
+            return selectedRouteIds.has(rid) || rid === selectedRouteId;
+          }}
+          selectedIcon="{selectedIcon}"
+          clearSignal={clearSignal}
+          onIconClick={(r) => {
+            const rid = (r as RouteRow).route_id;
+            setSelectedRouteIds((prev: Set<string>) => { const n = new Set(prev); n.delete(rid); return n; });
+            if (selectedRouteId === rid) setSelectedRouteId(null);
+          }}
+          selectOnCellFocus
+          onDeleteRow={(r) => {
+            const rid = (r as RouteRow).route_id;
             if (!rid) return;
-            setSelectedRouteId(rid);
-            setSelectedRouteIds(new Set([rid]));
-            setMapClickMenu(null);
+            if (!confirm(`Delete route ${rid}?`)) return;
+            hardDeleteRoutesBulk(new Set([rid]));
           }}
-
-          // Highlight selected rows
-          selectedPredicate={(row) => {
-            const rid = row.route_id;
-            return !!rid && (rid === selectedRouteId || selectedRouteIds.has(rid));
-          }}
-
-          onIconClick={(row) => {
-            const rid = row.route_id;
-            if (!rid) return;
-            setSelectedRouteId(rid);
-            setSelectedRouteIds(new Set([rid]));
-            setMapClickMenu(null);
-          }}
-
-          // 🔹 RESTORE: Add Route button
-          onAddRow={createNewRoute}
-          addRowLabel="Route"
-
-          // Optional primary action: Duplicate selected (function reads from state)
-          primaryAction={
-            selectedRouteId
-              ? { label: "Duplicate selected", onClick: () => duplicateSelectedRoute() }
-              : undefined
-          }
-
-          // Extra header controls (hide/unhide/show selection)
-          headerExtras={
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                className="btn"
-                onClick={() => hideSelectedRoutes()}
-                disabled={!hasSelection}
-                title="Hide selected routes from the map"
-              >
-                Hide selected
-              </button>
-              <button
-                className="btn"
-                onClick={() => unhideAllRoutes()}
-                title="Show all routes again"
-              >
-                Unhide all
-              </button>
-            </div>
-          }
-
-          draggableRows={false}
-
-          // If you support deletion: clear selection inline when deleting the selected one
-          onDeleteRow={(row) => {
-            const rid = row.route_id;
-            if (!rid) return;
-            hardDeleteRoute(rid);
-            setSelectedRouteIds(prev => (prev.has(rid) ? new Set() : prev));
-          }}
-
-          emptyText="No routes."
+          enableMultiSelect
+          primaryAction={{ label: "+ Add route", onClick: createNewRoute }}
         />
       </div>
 
@@ -5977,169 +5490,355 @@ useEffect(() => {
             addRowLabel="Add service"
           />
         </div>
-
-        {/* ⬇️ Stop Times panel (uses your PaginatedEditableTable) */}
         <div ref={stopTimesRef}>
-          <PaginatedEditableTable
-            title="stop_times.txt"
-            rows={stopTimesScoped /* scoped to selected route(s) */}
-            onChange={setStopTimes}
-            initialPageSize={20}
-            badTimeKeys={badTimeKeys}
-            // Highlight the currently selected stop_time row
-            selectedPredicate={(r: any) =>
-              !!selectedStopTime &&
-              r.trip_id === selectedStopTime.trip_id &&
-              Number(r.stop_sequence) === Number(selectedStopTime.stop_sequence)
-            }
-            onRowClick={(row) => {
-              setSelectedStopTime({ trip_id: row.trip_id, stop_sequence: Number(row.stop_sequence) });
-              // Keep the route focused so the panel stays scoped & visible
-              const rid = trips.find(t => t.trip_id === row.trip_id)?.route_id;
-              if (rid) {
-                setSelectedRouteId(rid);
-                setSelectedRouteIds(new Set([rid]));
-              }
-            }}
-            // Custom renderer so stop_id <-> stop_name stay consistent
-            cellRenderer={renderStopTimesCell}
-            // Quick actions at the right side of the table header
-            headerExtras={
-              <div style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                {/* Trip picker for “single-block” editing */}
-                <label title="Which trip to target when inserting new rows" style={{ opacity:.75 }}>Trip</label>
-                <select
-                  value={activeTripIdForTimes ?? ""}
-                  onChange={(e) => setActiveTripIdForTimes(e.target.value || null)}
-                  style={{ padding: "4px 6px", borderRadius: 8, border: "1px solid #e3e3e3" }}
-                >
-                  {(tripIdsForStopTimes.length ? tripIdsForStopTimes : [""]).map(tid =>
-                    <option key={tid || "none"} value={tid}>{tid || "—"}</option>
-                  )}
-                </select>
-
-                {/* Load all stop_times for the current route from the lazy cache */}
-                <button
-                  className="btn"
-                  onClick={() => {
-                    const next = !isStopTimesOpen;
-                    setIsStopTimesOpen(next);
-
-                    if (next) {
-                      // showing → lazy-load just what’s needed
-                      const rid = resolveActiveRouteId();
-                      if (rid) {
-                        loadStopTimesForRoute(rid);
-                      } else if (showStopTimesAll) {
-                        loadAllStopTimes();
-                      }
-                      // else: keep open/empty until a route is selected or “Show all” is enabled
-                    } else {
-                      // hiding → clear immediately
-                      if (stopTimes.length) setStopTimes([]);
-                      lastAppliedRidRef.current = null;
-                    }
-                  }}
-                  title={isStopTimesOpen ? "Hide stop_times table" : "Show stop_times table"}
-                >
-                  {isStopTimesOpen ? "Hide stop_times" : "Show stop_times"}
-                </button>
-
-                {/* Quick fix: set arrival = departure for the selected cell’s stop (when one is blank) */}
-                <button
-                  className="btn"
-                  onClick={() => {
-                    const sel = selectedStopTime;
-                    if (!sel) return;
-                    setStopTimes(prev => prev.map(r => {
-                      if (r.trip_id !== sel.trip_id || Number(r.stop_sequence) !== Number(sel.stop_sequence)) return r;
-                      const a = (r.arrival_time || "").trim();
-                      const d = (r.departure_time || "").trim();
-                      if (a && !d) return { ...r, departure_time: toHHMMSS(a) };
-                      if (d && !a) return { ...r, arrival_time: toHHMMSS(d) };
-                      return r;
-                    }));
-                  }}
-                  title="If one time is blank, copy the other"
-                >
-                  Fill missing time
-                </button>
-
-                {/* Add blank row (wired to onAddRow prop) */}
-                <button className="btn" onClick={addBlankStopTimeRow}>Add blank row</button>
-
-                {/* Quick-add existing stop by id/name */}
-                <input
-                  value={existingStopToAdd}
-                  onChange={(e) => setExistingStopToAdd(e.target.value)}
-                  placeholder="Choose a stop…"
-                  list="gtfs-stop-ids"
-                  className="input"
-                  style={{ minWidth: 220 }}
-                  title="Type a stop_id or a stop name and then click Add"
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={() => confirmAddExistingStop(activeTripIdForTimes ?? undefined)}
-                  disabled={!activeTripIdForTimes}
-                  title={activeTripIdForTimes ? `Add to trip ${activeTripIdForTimes}` : "Pick a trip first"}
-                >
-                  Add
-                </button>
-
-                {/* Clear rows for the active trip */}
-                <button
-                  className="btn btn-danger"
-                  disabled={!activeTripIdForTimes}
-                  title="Remove all stop_times rows for this trip_id (trip remains in trips.txt)"
-                  onClick={() => {
-                    if (!activeTripIdForTimes) return;
-                    const cnt = stopTimes.filter(st => st.trip_id === activeTripIdForTimes).length;
-                    if (cnt === 0) return;
-                    if (!confirm(`Delete ${cnt} stop_times row(s) for trip ${activeTripIdForTimes}?`)) return;
-                    setStopTimes(prev => prev.filter(st => st.trip_id !== activeTripIdForTimes));
-                    // clear selection if it was within the cleared trip
-                    if (selectedStopTime?.trip_id === activeTripIdForTimes) setSelectedStopTime(null);
+          {/* Draggable stop_times grouped by trip_id */}
+          {tripIdsForStopTimes.length ? (
+            <div className="card section" style={{ marginTop: 10 }}>
+              <div className="card-body">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
                   }}
                 >
-                  Clear rows
-                </button>
+                  <h3 style={{ margin: 0 }}>
+                    stop_times.txt{" "}
+                    {activeTripIdForTimes && (
+                      <span style={{ opacity: 0.6, fontWeight: 400 }}>
+                        — trip_id:&nbsp;<code>{activeTripIdForTimes}</code>{" "}
+                        ({stopTimes.filter(st => st.trip_id === activeTripIdForTimes).length} rows)
+                      </span>
+                    )}
+                  </h3>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {/* Trip selector */}
+                    <label style={{ fontSize: 12, opacity: 0.7 }}>Trip:</label>
+                    <select
+                      className="input"
+                      value={activeTripIdForTimes ?? ""}
+                      onChange={(e) => setActiveTripIdForTimes(e.target.value || null)}
+                      style={{ minWidth: 220, padding: "6px 8px", borderRadius: 8, border: "1px solid #e3e3e3" }}
+                    >
+                      {tripIdsForStopTimes.map(tid => (
+                        <option key={tid} value={tid}>{tid}</option>
+                      ))}
+                    </select>
+
+                    {/* Add helpers on the same line */}
+                    <button className="btn" onClick={addBlankStopTimeRow}>Add blank row</button>
+
+                    <input
+                      value={existingStopToAdd}
+                      onChange={(e) => setExistingStopToAdd(e.target.value)}
+                      placeholder="Choose a stop…"
+                      list="gtfs-stop-ids"
+                      className="input"
+                      style={{ minWidth: 260 }}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => confirmAddExistingStop(activeTripIdForTimes ?? undefined)}
+                    >
+                      Add
+                    </button>
+
+                    {/* Clear rows for this trip */}
+                    <button
+                      className="btn btn-danger"
+                      disabled={!activeTripIdForTimes}
+                      title="Remove all stop_times rows for this trip_id (trip remains in trips.txt)"
+                      onClick={() => {
+                        if (!activeTripIdForTimes) return;
+                        const cnt = stopTimes.filter(st => st.trip_id === activeTripIdForTimes).length;
+                        if (cnt === 0) return;
+                        if (!confirm(`Delete ${cnt} stop_times row(s) for trip ${activeTripIdForTimes}?`)) return;
+                        setStopTimes(prev => prev.filter(st => st.trip_id !== activeTripIdForTimes));
+                      }}
+                    >
+                      Clear rows
+                    </button>
+                  </div>
+                </div>
+
+                {/* Table for just the active trip */}
+                {activeTripIdForTimes ? (() => {
+                  const trip_id = activeTripIdForTimes;
+                  const rows = stopTimes
+                    .filter(st => st.trip_id === trip_id)
+                    .sort((a, b) => num(a.stop_sequence) - num(b.stop_sequence));
+
+                  return (
+                    <div className="overflow-auto" style={{ borderRadius: 12, border: "1px solid #eee", marginTop: 8 }}>
+                      <table style={{ width: "100%", fontSize: 13, minWidth: 900 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: 28 }}></th>
+                            <th>stop_sequence</th>
+                            <th>stop_id</th>
+                            <th>stop_name</th>
+                            <th>arrival_time</th>
+                            <th>departure_time</th>
+                            <th>pickup_type</th>
+                            <th>drop_off_type</th>
+                            <th style={{ width: 30 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.length ? rows.map((r, idx) => {
+                            const globalKey = `${r.trip_id}::${r.stop_id}::${r.stop_sequence}::${idx}`;
+                            const stopName = stopIdToName(r.stop_id);
+                            const bad = badTimeKeys.has(`${r.trip_id}::${r.stop_sequence}`);
+                            const badInputStyle = bad ? { border: "1px solid #e11d48", background: "#fee2e2" } : {};
+                            
+                            // --- DEBUG: expose state for console inspection ---
+                            if (typeof window !== "undefined") {
+                              (window as any).appDebug = {
+                                routes,
+                                trips,
+                                shapePts,      // your in-memory shapes table
+                                stops,
+                                stopTimes,
+                                activeRoute,
+                                // expose any helpers you use in rendering:
+                                getRouteGeom,  // if this exists in scope; if not, omit
+                              };
+                            }
+
+                            return (
+                              <tr
+                                key={globalKey}
+                                onDragOver={(e) => { if (dragInfo?.trip_id === trip_id) e.preventDefault(); }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  if (dragInfo?.trip_id === trip_id) moveRowWithinTrip(trip_id, dragInfo.from, idx);
+                                  setDragInfo(null);
+                                }}
+                                style={{
+                                  cursor: "default", // row is no longer the drag source
+                                  background:
+                                    selectedStopTime &&
+                                    selectedStopTime.trip_id === r.trip_id &&
+                                    Number(selectedStopTime.stop_sequence) === Number(r.stop_sequence)
+                                      ? "rgba(232, 242, 255, 0.7)"
+                                      : "transparent",
+                                  outline:
+                                    selectedStopTime &&
+                                    selectedStopTime.trip_id === r.trip_id &&
+                                    Number(selectedStopTime.stop_sequence) === Number(r.stop_sequence)
+                                      ? "2px solid #7db7ff"
+                                      : "none",
+                                  outlineOffset: -2,
+                                }}
+                                onClick={(e) => {
+                                  const t = e.target as HTMLElement;
+                                  if (t.closest("input, select, button, textarea")) return; // don’t steal focus from form controls
+                                  setSelectedStopTime({ trip_id, stop_sequence: r.stop_sequence });
+                                }}
+                              >
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4, textAlign: "center" }} title="Drag to reorder">
+                                  <button
+                                    type="button"
+                                    draggable
+                                    onDragStart={() => setDragInfo({ trip_id, from: idx })}
+                                    onMouseDown={(e) => e.stopPropagation()} // don’t bubble to row
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      cursor: "grab",
+                                      padding: 0,
+                                      width: 24,
+                                      height: 24,
+                                      lineHeight: "24px",
+                                      userSelect: "none",
+                                    }}
+                                    aria-label="Drag to reorder"
+                                    title="Drag to reorder"
+                                  >
+                                    ↕
+                                  </button>
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input value={r.stop_sequence} readOnly
+                                    style={{ width: 80, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8, background: "#f8f9fb" }} />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.stop_id}
+                                    list="gtfs-stop-ids"
+                                    onChange={(e) => {
+                                      const sidOrName = e.target.value;
+                                      const sid = stopNameToId.get(sidOrName) ?? sidOrName;
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, stop_id: sid }
+                                            : st
+                                        )
+                                      );
+                                    }}
+                                    style={{ width: 180, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8 }}
+                                  />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input value={stopName} readOnly
+                                    style={{ width: 200, border: "1px solid #e8e8e8", padding: "4px 6px", borderRadius: 8, background: "#f8f9fb" }} />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.arrival_time ?? ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, arrival_time: v }
+                                            : st
+                                        )
+                                      );
+                                    }}
+                                    placeholder="HH:MM:SS"
+                                    style={{ width: 130, padding: "4px 6px", borderRadius: 8, border: "1px solid #e8e8e8", ...badInputStyle }}
+                                  />
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <input
+                                    value={r.departure_time ?? ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setStopTimes((prev) =>
+                                        prev.map((st) =>
+                                          st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                            ? { ...st, departure_time: v }
+                                            : st
+                                        )
+                                      );
+                                    }}
+                                    placeholder="HH:MM:SS"
+                                    style={{ width: 130, padding: "4px 6px", borderRadius: 8, border: "1px solid #e8e8e8", ...badInputStyle }}
+                                  />
+                                </td>
+
+                                {/* pickup_type */}
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <div onMouseDown={(e) => e.stopPropagation()}>
+                                    <StopTypeSelect
+                                      title="Pickup type"
+                                      value={r.pickup_type}
+                                      onChange={(next) =>
+                                        setStopTimes((prev) =>
+                                          prev.map((st) =>
+                                            st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                              ? { ...st, pickup_type: next }
+                                              : st
+                                          )
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </td>
+
+                                {/* drop_off_type */}
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 4 }}>
+                                  <div onMouseDown={(e) => e.stopPropagation()}>
+                                    <StopTypeSelect
+                                      title="Drop-off type"
+                                      value={r.drop_off_type}
+                                      onChange={(next) =>
+                                  
+                                        setStopTimes((prev) =>
+                                          prev.map((st) =>
+                                            st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence
+                                              ? { ...st, drop_off_type: next }
+                                              : st
+                                          )
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </td>
+
+                                <td style={{ borderBottom: "1px solid #f3f3f3", padding: 0, textAlign: "center" }}>
+                                  <button
+                                    title="Delete row"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setStopTimes((prev) =>
+                                        prev.filter(
+                                          (st) => !(st.trip_id === r.trip_id && st.stop_sequence === r.stop_sequence)
+                                        )
+                                      );
+                                    }}
+                                    style={{ border: "none", background: "transparent", cursor: "pointer", width: 28, height: 28, lineHeight: "28px" }}
+                                  >
+                                    ×
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          }) : (
+                            <tr>
+                              <td colSpan={9} style={{ padding: 12, opacity: 0.6 }}>No rows.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })() : (
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    Choose a trip to edit its stop_times.
+                  </div>
+                )}
+
+                {selectedStopTime ? (
+                  <>
+                    <div className="muted" style={{ marginTop: 6 }}>
+                      New rows will be inserted <b>after</b> trip{" "}
+                      <code>{selectedStopTime.trip_id}</code>, sequence{" "}
+                      <b>{selectedStopTime.stop_sequence}</b>.
+                    </div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: 12, color: "#666" }}>
+                      Custom stop types must be changed in the Summary block.
+                    </div>
+                  </>
+                ) : (
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    Tip: click a row to insert the next one <b>after</b> it.
+                  </div>
+                )}
               </div>
-            }
-            // Fast add/delete
-            onAddRow={addBlankStopTimeRow}
-            addRowLabel="Add blank row"
-            onDeleteRow={(row: any) => {
-              // Delete row and renumber within that trip
-              setStopTimes(prev => {
-                const kept = prev.filter(r => !(r.trip_id === row.trip_id && Number(r.stop_sequence) === Number(row.stop_sequence)));
-                // Renumber within the affected trip
-                const inTrip = kept
-                  .filter(r => r.trip_id === row.trip_id)
-                  .sort((a,b) => a.stop_sequence - b.stop_sequence)
-                  .map((r, i) => ({ ...r, stop_sequence: i + 1 }));
-                const others = kept.filter(r => r.trip_id !== row.trip_id);
-                return [...others, ...inTrip];
-              });
-              // Clear selection if it pointed to the deleted row
-              if (
-                selectedStopTime &&
-                selectedStopTime.trip_id === row.trip_id &&
-                Number(selectedStopTime.stop_sequence) === Number(row.stop_sequence)
-              ) {
-                setSelectedStopTime(null);
-              }
-            }}
-            emptyText={
-              stopTimesAllRef.current?.length
-                ? "No rows for the current scope. Click “Load route stop_times” or insert a blank row."
-                : "No stop_times loaded yet. Import GTFS or add rows."
-            }
-          />
+            </div>
+          ) : (
+            <div className="card section" style={{ marginTop: 10 }}>
+              <div className="card-body">
+                <h3 style={{ marginTop: 0 }}>stop_times.txt</h3>
+                <p className="muted" style={{ marginTop: 6 }}>
+                  No trips yet. Create a route and a trip to start adding stop times.
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn" onClick={createNewRoute}>New route</button>
+                  <button className="btn" onClick={addTripRow}>Add trip</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-
-
-        
         <div ref={shapesRef}>
           <PaginatedEditableTable
             title="shapes.txt"
