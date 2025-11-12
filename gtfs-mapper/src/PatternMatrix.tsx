@@ -357,7 +357,7 @@ function StopRuleEditor({
   const ref = useClickAway<HTMLDivElement>(onClose);
   if (!open) return null;
   return (
-    <div ref={ref} role="dialog" aria-label="Bulk stop rule editor">
+    <div style={{ border: "1px solid #df007d"}}  ref={ref} role="dialog" aria-label="Bulk stop rule editor">
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 12, color: "#555" }}>Stop rule:</span>
         <select
@@ -509,7 +509,7 @@ function StopBulkRuleEditor({
   const ref = useClickAway<HTMLDivElement>(onClose);
   if (!open) return null;
   return (
-    <div ref={ref} role="dialog" aria-label="Bulk stop rule editor">
+    <div style={{ border: "1px solid #df007d", borderRadius: 6, padding: "10px", boxShadow: "rgba(0,0,0,0.7) 3px 5px 20px"}}  ref={ref} role="dialog" aria-label="Bulk stop rule editor">
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 12, color: "#555" }}>Stop rule (bulk):</span>
         <select value={mode} onChange={(e) => setMode(e.target.value as StopRuleMode)} style={{ fontSize: 12 }}>

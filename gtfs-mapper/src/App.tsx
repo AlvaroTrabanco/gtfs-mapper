@@ -45,7 +45,7 @@ function throttle<T extends (...args: any[]) => void>(fn: T, wait = 1500) {
 /** ---------- Misc ---------- */
 const defaultTZ: string = String(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid");
 const MIN_ADD_ZOOM = 11;
-const MIN_STOP_ZOOM = 9;
+const MIN_STOP_ZOOM = 4;
 const MIN_ROUTE_ZOOM = 4;      // ← NEW: don’t draw route lines when zoomed way out
 const MAX_ROUTE_POINTS = 2000; // ← NEW: cap points per polyline drawn to the screen
 const DIM_ROUTE_COLOR = "#2b2b2b";
@@ -4762,7 +4762,7 @@ const rulesFingerprint = useMemo(() => {
       {/* Toolbar */}
       <div className="card section" style={{ marginBottom: 12 }}>
         <div className="card-body toolbar" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <h1 style={{ fontSize: '13px', color: '#df007c', display: 'block'}}>GTFS Builder</h1>
+          <h1 style={{ fontSize: '13px', color: '#df007c', display: 'block'}}>GTFS Mapper</h1>
 
           <label className="file-btn">
             Import GTFS .zip
