@@ -11,7 +11,7 @@ on:
       - "gtfs-mapper/automation/rebuild-*.js"       # any builder variants you add
   workflow_dispatch: {}
   schedule:
-    - cron: "15 4 * * *"    # daily at 04:15 UTC
+    - cron: "0 0 * * 0"    # weekly on Sunday at midnight
 
 permissions:
   contents: read
