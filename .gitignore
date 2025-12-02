@@ -31,5 +31,4 @@ site/
 node_modules/
 
 # Ignore compiled GTFS zips and reports
-*.zip
 report.json
