@@ -217,9 +217,9 @@ jobs:
               OUT_DIR="site/${SLUG}" \
               OUT_ZIP="compiled.zip" \
               OUT_REPORT="report.json" \
-              OVERRIDES="${OVR_FILE}" \
               FEED_API_HEADER="${API_HEADER}" \
               FEED_API_KEY="${API_KEY}" \
+              OVERRIDES="${OVR_FILE}" \
               node automation/rebuild-gtfs.js || any_fail=1
             else
               FEED_SLUG="${SLUG}" \
