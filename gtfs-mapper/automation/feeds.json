@@ -6,13 +6,5 @@
   {
     "slug": "ouibus",
     "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/fr-ile-de-france-blablacar-bus-gtfs-1314.zip?alt=media"
-  },
-  {
-    "slug": "test",
-    "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/de-unknown-flixbus-gtfs-853.zip?alt=media",
-    "localPath": "",
-    "apiKey": "",
-    "apiKeyHeader": "",
-    "sourceType": "url"
   }
 ]
