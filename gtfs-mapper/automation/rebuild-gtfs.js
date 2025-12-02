@@ -321,23 +321,32 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     let zipBuffer;
     let sourceDescriptor = "";
 
+    // Resolve effective URL vs local path, mirroring the workflow:
     const hasHttpUrl = isHttpUrl(SRC_URL_ENV);
+    const effectiveUrl   = hasHttpUrl ? SRC_URL_ENV : "";
+    const effectiveLocal = LOCAL_PATH_ENV || (!hasHttpUrl && SRC_URL_ENV ? SRC_URL_ENV : "");
 
-    if (hasHttpUrl) {
+    console.log("[source] SLUG =", SLUG);
+    console.log("[source] FEED_URL =", SRC_URL_ENV || "(empty)");
+    console.log("[source] FEED_LOCAL_PATH =", LOCAL_PATH_ENV || "(empty)");
+    console.log("[source] effectiveUrl =", effectiveUrl || "(none)");
+    console.log("[source] effectiveLocal =", effectiveLocal || "(none)");
+
+    if (effectiveUrl) {
       // Remote URL mode (only true http/https)
-      console.log(`Downloading GTFS (${SLUG}) from URL:`, SRC_URL_ENV);
+      console.log(`Downloading GTFS (${SLUG}) from URL:`, effectiveUrl);
       const headers = {
         Accept: "application/zip, application/octet-stream,*/*",
         "User-Agent": "curl/8.7.1",
       };
 
-      const res = await fetch(SRC_URL_ENV, { headers });
+      const res = await fetch(effectiveUrl, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       zipBuffer = await res.arrayBuffer();
-      sourceDescriptor = SRC_URL_ENV;
-    } else if (LOCAL_PATH_ENV) {
+      sourceDescriptor = effectiveUrl;
+    } else if (effectiveLocal) {
       // Local file mode
-      const localPath = path.join("automation", LOCAL_PATH_ENV);
+      const localPath = path.join("automation", effectiveLocal);
       console.log(`Loading GTFS (${SLUG}) from local file:`, localPath);
       try {
         zipBuffer = await fs.readFile(localPath);
@@ -347,11 +356,10 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         );
       }
       sourceDescriptor = `local:${localPath}`;
-    } else if (SRC_URL_ENV) {
-      // FEED_URL was set but is not a valid http/https URL
-      throw new Error(`FEED_URL is not a valid http/https URL: ${SRC_URL_ENV}`);
     } else {
-      throw new Error("No FEED_URL or FEED_LOCAL_PATH provided for GTFS source.");
+      throw new Error(
+        "No valid FEED_URL (http/https) or FEED_LOCAL_PATH / local-like FEED_URL provided for GTFS source."
+      );
     }
 
     const zip = await JSZip.loadAsync(zipBuffer);

@@ -145,16 +145,32 @@ jobs:
             echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}'"
             mkdir -p "site/${SLUG}"
 
-            # Optional: keep headers/download debug page
-            URL_DISPLAY="${URL:-}"
-            LOCAL_NOTE=""
+            # Decide effective source for this feed:
+            # - If URL is http(s) => remote feed (EFFECTIVE_URL)
+            # - Else if URL is non-empty and LOCAL_PATH is empty => treat URL as local path
+            # - Else use LOCAL_PATH as local path
+            EFFECTIVE_URL=""
+            EFFECTIVE_LOCAL="${LOCAL_PATH:-}"
 
             if [[ "${URL:-}" =~ ^https?:// ]]; then
+              EFFECTIVE_URL="${URL}"
+            elif [ -n "${URL:-}" ] && [ -z "${EFFECTIVE_LOCAL}" ]; then
+              # e.g. URL="feeds/alsa.zip" with no localPath set in feeds.json
+              EFFECTIVE_LOCAL="${URL}"
+            fi
+
+            echo "EFFECTIVE_URL='${EFFECTIVE_URL}' EFFECTIVE_LOCAL='${EFFECTIVE_LOCAL}'"
+
+            # Optional: keep headers/download debug page
+            URL_DISPLAY="${EFFECTIVE_URL:-}"
+            LOCAL_NOTE=""
+
+            if [ -n "${EFFECTIVE_URL}" ]; then
               # REMOTE URL MODE
               echo "::group::Downloading ${SLUG}"
-              echo "URL: ${URL}"
+              echo "URL: ${EFFECTIVE_URL}"
 
-              if fetch_with_diag "${URL}" "site/${SLUG}/gtfs.zip"; then
+              if fetch_with_diag "${EFFECTIVE_URL}" "site/${SLUG}/gtfs.zip"; then
                 LOCAL_NOTE='<a href="gtfs.zip">Download GTFS (local)</a>'
                 du -h "site/${SLUG}/gtfs.zip" || true
               else
@@ -166,15 +182,15 @@ jobs:
                 fi
               fi
               echo "::endgroup::"
-            elif [ -n "${LOCAL_PATH:-}" ]; then
+            elif [ -n "${EFFECTIVE_LOCAL}" ]; then
               # LOCAL FILE MODE (no remote URL, rely on repo file)
-              URL_DISPLAY="(local file: ${LOCAL_PATH})"
+              URL_DISPLAY="(local file: ${EFFECTIVE_LOCAL})"
               LOCAL_NOTE='<em>Using local GTFS from repo</em>'
               # Optional: expose the local zip for download/debug
-              if [ -f "automation/${LOCAL_PATH}" ]; then
-                cp "automation/${LOCAL_PATH}" "site/${SLUG}/gtfs.zip" || true
+              if [ -f "automation/${EFFECTIVE_LOCAL}" ]; then
+                cp "automation/${EFFECTIVE_LOCAL}" "site/${SLUG}/gtfs.zip" || true
               else
-                echo "ERROR: localPath automation/${LOCAL_PATH} does not exist"
+                echo "ERROR: localPath automation/${EFFECTIVE_LOCAL} does not exist"
                 any_fail=1
               fi
             else
@@ -198,8 +214,8 @@ jobs:
             run_builder() {
               if [ -n "${OVR_FILE}" ]; then
                 FEED_SLUG="${SLUG}" \
-                FEED_URL="${URL:-}" \
-                FEED_LOCAL_PATH="${LOCAL_PATH:-}" \
+                FEED_URL="${EFFECTIVE_URL}" \
+                FEED_LOCAL_PATH="${EFFECTIVE_LOCAL}" \
                 OUT_DIR="site/${SLUG}" \
                 OUT_ZIP="compiled.zip" \
                 OUT_REPORT="report.json" \
@@ -207,8 +223,8 @@ jobs:
                 node automation/rebuild-gtfs.js
               else
                 FEED_SLUG="${SLUG}" \
-                FEED_URL="${URL:-}" \
-                FEED_LOCAL_PATH="${LOCAL_PATH:-}" \
+                FEED_URL="${EFFECTIVE_URL}" \
+                FEED_LOCAL_PATH="${EFFECTIVE_LOCAL}" \
                 OUT_DIR="site/${SLUG}" \
                 OUT_ZIP="compiled.zip" \
                 OUT_REPORT="report.json" \
