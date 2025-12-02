@@ -25,6 +25,7 @@ const OUT_ZIP        = process.env.OUT_ZIP          || `${SLUG}_compiled.zip`;
 const OUT_REPORT     = process.env.OUT_REPORT       || "report.json";
 const OVERRIDES_PATH = process.env.OVERRIDES        || "automation/overrides.json";
 const OVERRIDES_URL  = process.env.OVERRIDES_URL    || "";
+const isHttpUrl = (u) => /^https?:\/\//i.test(u || "");
 
 /* -------------------------- overrides auto-discovery ---------------------- */
 
@@ -320,8 +321,10 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     let zipBuffer;
     let sourceDescriptor = "";
 
-    if (SRC_URL_ENV) {
-      // Remote URL mode
+    const hasHttpUrl = isHttpUrl(SRC_URL_ENV);
+
+    if (hasHttpUrl) {
+      // Remote URL mode (only true http/https)
       console.log(`Downloading GTFS (${SLUG}) from URL:`, SRC_URL_ENV);
       const headers = {
         Accept: "application/zip, application/octet-stream,*/*",
@@ -344,6 +347,9 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         );
       }
       sourceDescriptor = `local:${localPath}`;
+    } else if (SRC_URL_ENV) {
+      // FEED_URL was set but is not a valid http/https URL
+      throw new Error(`FEED_URL is not a valid http/https URL: ${SRC_URL_ENV}`);
     } else {
       throw new Error("No FEED_URL or FEED_LOCAL_PATH provided for GTFS source.");
     }

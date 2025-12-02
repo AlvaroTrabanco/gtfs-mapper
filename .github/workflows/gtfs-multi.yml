@@ -142,13 +142,14 @@ jobs:
           any_fail=0
           while IFS=$'\t' read -r SLUG URL LOCAL_PATH; do
             [ -z "${SLUG:-}" ] && continue
+            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}'"
             mkdir -p "site/${SLUG}"
 
             # Optional: keep headers/download debug page
             URL_DISPLAY="${URL:-}"
             LOCAL_NOTE=""
 
-            if [ -n "${URL:-}" ]; then
+            if [[ "${URL:-}" =~ ^https?:// ]]; then
               # REMOTE URL MODE
               echo "::group::Downloading ${SLUG}"
               echo "URL: ${URL}"
