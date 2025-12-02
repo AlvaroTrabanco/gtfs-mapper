@@ -67,7 +67,7 @@ jobs:
           set -euo pipefail
           mkdir -p site
 
-          # Build TSV: slug \t url (supports [{slug,url}], {feeds:[...]}, ["slug"])
+          # Build TSV: slug \t url \t localPath  (supports [{slug,url,localPath}], {feeds:[...]}, ["slug"])
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
@@ -78,20 +78,18 @@ jobs:
 
             const norm = list.map(x => {
               if (typeof x === "string") {
-                return { slug: x, url: "", localPath: "", apiKeyHeader: "", apiKey: "" };
+                return { slug: x, url: "", localPath: "" };
               }
               if (!x || typeof x !== "object") return null;
               return {
                 slug: x.slug,
                 url: x.url || "",
-                localPath: x.localPath || "",
-                apiKeyHeader: x.apiKeyHeader || "",
-                apiKey: x.apiKey || ""
+                localPath: x.localPath || ""
               };
             }).filter(x => x && x.slug);
 
             for (const it of norm) {
-              const cols = [it.slug, it.url, it.localPath, it.apiKeyHeader, it.apiKey]
+              const cols = [it.slug, it.url, it.localPath]
                 .map(v => String(v ?? "").replace(/\t/g, " "));
               console.log(cols.join("\t"));
             }
@@ -101,7 +99,7 @@ jobs:
 
           # Helper to fetch source GTFS (kept for debugging headers)
           fetch_with_diag() {
-            local url="$1" out="$2" api_header="$3" api_key="$4" dir
+            local url="$1" out="$2" dir
             dir="$(dirname "$out")"
             mkdir -p "$dir"
             local hdr="$dir/headers.txt"
@@ -109,45 +107,24 @@ jobs:
             rm -f "$hdr" "$raw" "$out" "$out.part" "$dir/error.html"
 
             echo "---- HEAD $url"
-            if [ -n "${api_header}" ] && [ -n "${api_key}" ]; then
-              curl -sS -I -L -A "gtfs-mapper-ci" -H "${api_header}: ${api_key}" "$url" || true
-            else
-              curl -sS -I -L -A "gtfs-mapper-ci" "$url" || true
-            fi
+            curl -sS -I -L -A "gtfs-mapper-ci" "$url" || true
 
             echo "---- GET  $url"
-            if [ -n "${api_header}" ] && [ -n "${api_key}" ]; then
-              if ! curl -L -sS \
-                  -H "Accept: application/zip, application/octet-stream,*/*" \
-                  -H "${api_header}: ${api_key}" \
-                  -A "gtfs-mapper-ci" \
-                  -D "$hdr" \
-                  --connect-timeout 30 \
-                  --max-time 900 \
-                  --retry 5 --retry-delay 5 --retry-connrefused \
-                  -C - \
-                  -o "$raw" \
-                  "$url"; then
-                echo "Curl failed (network/HTTP). See $hdr and $raw"
-                return 1
-              fi
-            else
-              if ! curl -L -sS \
-                  -H "Accept: application/zip, application/octet-stream,*/*" \
-                  -A "gtfs-mapper-ci" \
-                  -D "$hdr" \
-                  --connect-timeout 30 \
-                  --max-time 900 \
-                  --retry 5 --retry-delay 5 --retry-connrefused \
-                  -C - \
-                  -o "$raw" \
-                  "$url"; then
-                echo "Curl failed (network/HTTP). See $hdr and $raw"
-                return 1
-              fi
+            if ! curl -L -sS \
+                -H "Accept: application/zip, application/octet-stream,*/*" \
+                -A "gtfs-mapper-ci" \
+                -D "$hdr" \
+                --connect-timeout 30 \
+                --max-time 900 \
+                --retry 5 --retry-delay 5 --retry-connrefused \
+                -C - \
+                -o "$raw" \
+                "$url"; then
+              echo "Curl failed (network/HTTP). See $hdr and $raw"
+              return 1
             fi
 
-            # ZIP magic (PK\x03\x04) + deep validation (unchanged)
+            # ZIP magic (PK\x03\x04) + deep validation
             if head -c 4 "$raw" | hexdump -Cv | grep -q "50 4b 03 04"; then
               mv "$raw" "$out"
               if ! unzip -tqq "$out" >/dev/null 2>&1; then
@@ -163,25 +140,20 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL LOCAL_PATH API_HEADER API_KEY; do
+          while IFS=$'\t' read -r SLUG URL LOCAL_PATH; do
             [ -z "${SLUG:-}" ] && continue
             mkdir -p "site/${SLUG}"
 
             # Optional: keep headers/download debug page
             URL_DISPLAY="${URL:-}"
             LOCAL_NOTE=""
-            API_HEADER="${API_HEADER:-}"
-            API_KEY="${API_KEY:-}"
 
             if [ -n "${URL:-}" ]; then
               # REMOTE URL MODE
               echo "::group::Downloading ${SLUG}"
               echo "URL: ${URL}"
-              if [ -n "${API_HEADER}" ] && [ -n "${API_KEY}" ]; then
-                echo "Using API header: ${API_HEADER}"
-              fi
 
-              if fetch_with_diag "${URL}" "site/${SLUG}/gtfs.zip" "${API_HEADER}" "${API_KEY}"; then
+              if fetch_with_diag "${URL}" "site/${SLUG}/gtfs.zip"; then
                 LOCAL_NOTE='<a href="gtfs.zip">Download GTFS (local)</a>'
                 du -h "site/${SLUG}/gtfs.zip" || true
               else
@@ -222,7 +194,6 @@ jobs:
             echo "OVERRIDES for ${SLUG}: ${OVR_FILE:-none}"
             [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
 
-            # Run the builder; it downloads FEED_URL itself and applies OVERRIDES if provided
             run_builder() {
               if [ -n "${OVR_FILE}" ]; then
                 FEED_SLUG="${SLUG}" \
@@ -231,8 +202,6 @@ jobs:
                 OUT_DIR="site/${SLUG}" \
                 OUT_ZIP="compiled.zip" \
                 OUT_REPORT="report.json" \
-                FEED_API_HEADER="${API_HEADER}" \
-                FEED_API_KEY="${API_KEY}" \
                 OVERRIDES="${OVR_FILE}" \
                 node automation/rebuild-gtfs.js
               else
@@ -242,8 +211,6 @@ jobs:
                 OUT_DIR="site/${SLUG}" \
                 OUT_ZIP="compiled.zip" \
                 OUT_REPORT="report.json" \
-                FEED_API_HEADER="${API_HEADER}" \
-                FEED_API_KEY="${API_KEY}" \
                 node automation/rebuild-gtfs.js
               fi
             }

@@ -8,15 +8,14 @@ import Papa from "papaparse";
 
 /**
  * Environment
- * - FEED_URL:         GTFS source zip (required; falls back to Flix EU)
+ * - FEED_URL:         GTFS source zip (remote URL, optional)
+ * - FEED_LOCAL_PATH:  GTFS source zip (local path under automation/, e.g. "feeds/alsa.zip")
  * - FEED_SLUG:        short id used for logs (optional)
  * - OUT_DIR:          output directory (default: site)
  * - OUT_ZIP:          compiled zip filename (default: <slug>_compiled.zip)
  * - OUT_REPORT:       report filename (default: report.json)
  * - OVERRIDES:        local overrides path (default: automation/overrides.json)
  * - OVERRIDES_URL:    remote overrides JSON URL (takes precedence)
- * - FEED_API_HEADER:  HTTP header name for API key (optional, e.g. "Authorization")
- * - FEED_API_KEY:     HTTP header value/token (optional)
  */
 const SLUG           = process.env.FEED_SLUG        || "feed";
 const SRC_URL_ENV    = process.env.FEED_URL         || "";         // remote URL (may be empty)
@@ -26,8 +25,6 @@ const OUT_ZIP        = process.env.OUT_ZIP          || `${SLUG}_compiled.zip`;
 const OUT_REPORT     = process.env.OUT_REPORT       || "report.json";
 const OVERRIDES_PATH = process.env.OVERRIDES        || "automation/overrides.json";
 const OVERRIDES_URL  = process.env.OVERRIDES_URL    || "";
-const API_HEADER     = process.env.FEED_API_HEADER  || "";
-const API_KEY        = process.env.FEED_API_KEY     || "";
 
 /* -------------------------- overrides auto-discovery ---------------------- */
 
@@ -106,7 +103,7 @@ async function loadOverridesText() {
     return { text, source: OVERRIDES_URL };
   }
 
-  const explicitPath = process.env.OVERRIDES || "automation/overrides.json";
+  const explicitPath = process.env.OVERRIDES || OVERRIDES_PATH;
   if (await fileExists(explicitPath)) {
     console.log(`Overrides: reading ${explicitPath}`);
     const text = await fs.readFile(explicitPath, "utf8");
@@ -330,10 +327,6 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         Accept: "application/zip, application/octet-stream,*/*",
         "User-Agent": "curl/8.7.1",
       };
-      if (API_HEADER && API_KEY) {
-        headers[API_HEADER] = API_KEY.trim();
-        console.log(`Using API header: ${API_HEADER}`);
-      }
 
       const res = await fetch(SRC_URL_ENV, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
