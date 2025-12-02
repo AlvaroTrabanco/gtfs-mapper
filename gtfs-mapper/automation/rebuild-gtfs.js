@@ -322,11 +322,14 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     console.log(`Downloading GTFS (${SLUG}):`, SRC_URL);
     const headers = {
       Accept: "application/zip, application/octet-stream,*/*",
+      // Mimic curl to avoid any odd UA-based restrictions on the API
+      "User-Agent": "curl/8.7.1",
     };
     if (API_HEADER && API_KEY) {
-      headers[API_HEADER] = API_KEY;
+      headers[API_HEADER] = API_KEY.trim();
       console.log(`Using API header: ${API_HEADER}`);
     }
+
     const res = await fetch(SRC_URL, { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();

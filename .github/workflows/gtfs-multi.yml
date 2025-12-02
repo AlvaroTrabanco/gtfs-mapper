@@ -211,25 +211,35 @@ jobs:
             [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
 
             # Run the builder; it downloads FEED_URL itself and applies OVERRIDES if provided
-            if [ -n "${OVR_FILE}" ]; then
-              FEED_SLUG="${SLUG}" \
-              FEED_URL="${URL:-}" \
-              OUT_DIR="site/${SLUG}" \
-              OUT_ZIP="compiled.zip" \
-              OUT_REPORT="report.json" \
-              FEED_API_HEADER="${API_HEADER}" \
-              FEED_API_KEY="${API_KEY}" \
-              OVERRIDES="${OVR_FILE}" \
-              node automation/rebuild-gtfs.js || any_fail=1
-            else
-              FEED_SLUG="${SLUG}" \
-              FEED_URL="${URL:-}" \
-              OUT_DIR="site/${SLUG}" \
-              OUT_ZIP="compiled.zip" \
-              OUT_REPORT="report.json" \
-              FEED_API_HEADER="${API_HEADER}" \
-              FEED_API_KEY="${API_KEY}" \
-              node automation/rebuild-gtfs.js || any_fail=1
+            run_builder() {
+              if [ -n "${OVR_FILE}" ]; then
+                FEED_SLUG="${SLUG}" \
+                FEED_URL="${URL:-}" \
+                OUT_DIR="site/${SLUG}" \
+                OUT_ZIP="compiled.zip" \
+                OUT_REPORT="report.json" \
+                FEED_API_HEADER="${API_HEADER}" \
+                FEED_API_KEY="${API_KEY}" \
+                OVERRIDES="${OVR_FILE}" \
+                node automation/rebuild-gtfs.js
+              else
+                FEED_SLUG="${SLUG}" \
+                FEED_URL="${URL:-}" \
+                OUT_DIR="site/${SLUG}" \
+                OUT_ZIP="compiled.zip" \
+                OUT_REPORT="report.json" \
+                FEED_API_HEADER="${API_HEADER}" \
+                FEED_API_KEY="${API_KEY}" \
+                node automation/rebuild-gtfs.js
+              fi
+            }
+
+            if ! run_builder; then
+              if echo " ${OPTIONAL_FEEDS} " | grep -q " ${SLUG} "; then
+                echo "Feed ${SLUG} failed but is marked OPTIONAL; continuing without failing the job."
+              else
+                any_fail=1
+              fi
             fi
 
             # Per-feed index (no heredoc)
