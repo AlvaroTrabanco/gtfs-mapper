@@ -19,8 +19,8 @@ import Papa from "papaparse";
  * - FEED_API_KEY:     HTTP header value/token (optional)
  */
 const SLUG           = process.env.FEED_SLUG        || "feed";
-const SRC_URL        = process.env.FEED_URL         || "http://gtfs.gis.flix.tech/gtfs_generic_eu.zip";
-const LOCAL_PATH     = process.env.FEED_LOCAL_PATH  || ""; // NEW: local GTFS zip
+const SRC_URL_ENV    = process.env.FEED_URL         || "";         // remote URL (may be empty)
+const LOCAL_PATH_ENV = process.env.FEED_LOCAL_PATH  || "";         // like "feeds/alsa.zip"
 const OUT_DIR        = process.env.OUT_DIR          || "site";
 const OUT_ZIP        = process.env.OUT_ZIP          || `${SLUG}_compiled.zip`;
 const OUT_REPORT     = process.env.OUT_REPORT       || "report.json";
@@ -320,23 +320,14 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
 /* -------------------------------- main ------------------------------------ */
 (async () => {
   try {
-    let buf;
+    let zipBuffer;
+    let sourceDescriptor = "";
 
-    if (LOCAL_PATH) {
-      // Local file mode: use GTFS zip committed to the repo
-      const abs = path.resolve("automation", LOCAL_PATH);
-      console.log(`Using local GTFS for ${SLUG}:`, abs);
-      buf = await fs.readFile(abs);
-    } else {
-      // Remote URL mode (previous behaviour)
-      console.log(`Downloading GTFS (${SLUG}):`, SRC_URL);
-      if (!SRC_URL) {
-        throw new Error("No FEED_URL provided and no FEED_LOCAL_PATH set");
-      }
-
+    if (SRC_URL_ENV) {
+      // Remote URL mode
+      console.log(`Downloading GTFS (${SLUG}) from URL:`, SRC_URL_ENV);
       const headers = {
         Accept: "application/zip, application/octet-stream,*/*",
-        // Mimic curl to avoid any odd UA-based restrictions on the API
         "User-Agent": "curl/8.7.1",
       };
       if (API_HEADER && API_KEY) {
@@ -344,13 +335,27 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         console.log(`Using API header: ${API_HEADER}`);
       }
 
-      const res = await fetch(SRC_URL, { headers });
+      const res = await fetch(SRC_URL_ENV, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const arr = await res.arrayBuffer();
-      buf = Buffer.from(arr);
+      zipBuffer = await res.arrayBuffer();
+      sourceDescriptor = SRC_URL_ENV;
+    } else if (LOCAL_PATH_ENV) {
+      // Local file mode
+      const localPath = path.join("automation", LOCAL_PATH_ENV);
+      console.log(`Loading GTFS (${SLUG}) from local file:`, localPath);
+      try {
+        zipBuffer = await fs.readFile(localPath);
+      } catch (err) {
+        throw new Error(
+          `Failed to read local GTFS file at ${localPath}: ${err.message || err}`
+        );
+      }
+      sourceDescriptor = `local:${localPath}`;
+    } else {
+      throw new Error("No FEED_URL or FEED_LOCAL_PATH provided for GTFS source.");
     }
 
-    const zip = await JSZip.loadAsync(buf);
+    const zip = await JSZip.loadAsync(zipBuffer);
     const tables = {};
     const raw = {};
     for (const entry of Object.values(zip.files)) {
@@ -480,7 +485,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       missing: METRICS.missing,
       warnings: METRICS.warnings,
       generatedAt: new Date().toISOString(),
-      source: LOCAL_PATH ? `local:${LOCAL_PATH}` : SRC_URL,
+      source: sourceDescriptor,
       overridesSource: effectiveOverridesSource || "",
       artifacts: { zip: path.join(OUT_DIR, OUT_ZIP) },
     };
