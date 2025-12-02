@@ -72,21 +72,36 @@ jobs:
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
           node -e '
-            const fs=require("fs");
-            const j=JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));
-            const arr = Array.isArray(j) ? j : (j.feeds||[]);
-            for (const it of arr) {
-              if (typeof it==="string") console.log(it+"\t");
-              else if (it && it.slug) console.log(it.slug+"\t"+(it.url||""));
+            const fs = require("fs");
+            const raw = JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));
+            const list = Array.isArray(raw) ? raw : (raw.feeds || []);
+
+            const norm = list.map(x => {
+              if (typeof x === "string") {
+                return { slug: x, url: "", localPath: "", apiKeyHeader: "", apiKey: "" };
+              }
+              if (!x || typeof x !== "object") return null;
+              return {
+                slug: x.slug,
+                url: x.url || "",
+                localPath: x.localPath || "",
+                apiKeyHeader: x.apiKeyHeader || "",
+                apiKey: x.apiKey || ""
+              };
+            }).filter(x => x && x.slug);
+
+            for (const it of norm) {
+              const cols = [it.slug, it.url, it.localPath, it.apiKeyHeader, it.apiKey]
+                .map(v => String(v ?? "").replace(/\t/g, " "));
+              console.log(cols.join("\t"));
             }
           ' > feeds.tsv
-
           # Save slugs for registry/admin
           cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
           # Helper to fetch source GTFS (kept for debugging headers)
           fetch_with_diag() {
-            local url="$1" out="$2" dir
+            local url="$1" out="$2" api_header="$3" api_key="$4" dir
             dir="$(dirname "$out")"
             mkdir -p "$dir"
             local hdr="$dir/headers.txt"
@@ -94,24 +109,45 @@ jobs:
             rm -f "$hdr" "$raw" "$out" "$out.part" "$dir/error.html"
 
             echo "---- HEAD $url"
-            curl -sS -I -L -A "gtfs-mapper-ci" "$url" || true
-
-            echo "---- GET  $url"
-            if ! curl -L -sS \
-                -H "Accept: application/zip, application/octet-stream,*/*" \
-                -A "gtfs-mapper-ci" \
-                -D "$hdr" \
-                --connect-timeout 30 \
-                --max-time 900 \
-                --retry 5 --retry-delay 5 --retry-connrefused \
-                -C - \
-                -o "$raw" \
-                "$url"; then
-              echo "Curl failed (network/HTTP). See $hdr and $raw"
-              return 1
+            if [ -n "${api_header}" ] && [ -n "${api_key}" ]; then
+              curl -sS -I -L -A "gtfs-mapper-ci" -H "${api_header}: ${api_key}" "$url" || true
+            else
+              curl -sS -I -L -A "gtfs-mapper-ci" "$url" || true
             fi
 
-            # ZIP magic (PK\x03\x04) + deep validation
+            echo "---- GET  $url"
+            if [ -n "${api_header}" ] && [ -n "${api_key}" ]; then
+              if ! curl -L -sS \
+                  -H "Accept: application/zip, application/octet-stream,*/*" \
+                  -H "${api_header}: ${api_key}" \
+                  -A "gtfs-mapper-ci" \
+                  -D "$hdr" \
+                  --connect-timeout 30 \
+                  --max-time 900 \
+                  --retry 5 --retry-delay 5 --retry-connrefused \
+                  -C - \
+                  -o "$raw" \
+                  "$url"; then
+                echo "Curl failed (network/HTTP). See $hdr and $raw"
+                return 1
+              fi
+            else
+              if ! curl -L -sS \
+                  -H "Accept: application/zip, application/octet-stream,*/*" \
+                  -A "gtfs-mapper-ci" \
+                  -D "$hdr" \
+                  --connect-timeout 30 \
+                  --max-time 900 \
+                  --retry 5 --retry-delay 5 --retry-connrefused \
+                  -C - \
+                  -o "$raw" \
+                  "$url"; then
+                echo "Curl failed (network/HTTP). See $hdr and $raw"
+                return 1
+              fi
+            fi
+
+            # ZIP magic (PK\x03\x04) + deep validation (unchanged)
             if head -c 4 "$raw" | hexdump -Cv | grep -q "50 4b 03 04"; then
               mv "$raw" "$out"
               if ! unzip -tqq "$out" >/dev/null 2>&1; then
@@ -127,17 +163,24 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL; do
+          while IFS=$'\t' read -r SLUG URL LOCAL_PATH API_HEADER API_KEY; do
             [ -z "${SLUG:-}" ] && continue
             mkdir -p "site/${SLUG}"
 
             # Optional: keep headers/download debug page
             URL_DISPLAY="${URL:-}"
             LOCAL_NOTE=""
+            API_HEADER="${API_HEADER:-}"
+            API_KEY="${API_KEY:-}"
+
             if [ -n "${URL:-}" ]; then
               echo "::group::Downloading ${SLUG}"
               echo "URL: ${URL}"
-              if fetch_with_diag "${URL}" "site/${SLUG}/gtfs.zip"; then
+              if [ -n "${API_HEADER}" ] && [ -n "${API_KEY}" ]; then
+                echo "Using API header: ${API_HEADER}"
+              fi
+
+              if fetch_with_diag "${URL}" "site/${SLUG}/gtfs.zip" "${API_HEADER}" "${API_KEY}"; then
                 LOCAL_NOTE='<a href="gtfs.zip">Download GTFS (local)</a>'
                 du -h "site/${SLUG}/gtfs.zip" || true
               else
