@@ -54,12 +54,6 @@
         <p class="muted">For local files, you’ll commit the <code>.zip</code> manually to the repo and just reference it here.</p>
       </fieldset>
 
-      <label for="feedApiHeader">API header name <span class="muted">(optional)</span></label>
-      <input type="text" id="feedApiHeader" placeholder="Authorization" />
-
-      <label for="feedApiKey">API key / token <span class="muted">(optional)</span></label>
-      <input type="text" id="feedApiKey" placeholder="Will be stored in feeds.json" />
-
       <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
         <button type="button" id="saveFeedBtn">Save / update feed</button>
         <button type="button" id="deleteFeedBtn">Delete feed</button>
@@ -114,8 +108,6 @@
   const feedSlugInput = document.getElementById("feedSlug");          // NEW
   const feedUrlInput = document.getElementById("feedUrl");            // NEW
   const feedLocalPathInput = document.getElementById("feedLocalPath");// NEW
-  const feedApiKeyInput = document.getElementById("feedApiKey");      // NEW
-  const feedApiHeaderInput = document.getElementById("feedApiHeader");// NEW
 
   const LS_KEY = "gtfs_admin_uploader_v2";
   let lastJsonText = null;
@@ -131,8 +123,6 @@
         feedSlug: feedSlugInput?.value || "",
         feedUrl: feedUrlInput?.value || "",
         feedLocalPath: feedLocalPathInput?.value || "",
-        feedApiKey: feedApiKeyInput?.value || "",
-        feedApiHeader: feedApiHeaderInput?.value || "",
         feedSourceType: (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url"
       };
       localStorage.setItem(LS_KEY, JSON.stringify(bag));
@@ -147,8 +137,6 @@
       if (s.feedSlug) feedSlugInput.value = s.feedSlug;
       if (s.feedUrl) feedUrlInput.value = s.feedUrl;
       if (s.feedLocalPath) feedLocalPathInput.value = s.feedLocalPath;
-      if (s.feedApiKey) feedApiKeyInput.value = s.feedApiKey;
-      if (s.feedApiHeader) feedApiHeaderInput.value = s.feedApiHeader;
       if (s.feedSourceType && document.querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]')) {
         document.querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]').checked = true;
       }
@@ -249,8 +237,6 @@
     feedSlugInput.value = slug || "";
     feedUrlInput.value = found?.url || "";
     feedLocalPathInput.value = found?.localPath || "";
-    feedApiKeyInput.value = found?.apiKey || "";
-    feedApiHeaderInput.value = found?.apiKeyHeader || "";
 
     const sourceType = found?.localPath ? "file" : "url";
     const radio = document.querySelector('input[name="feedSourceType"][value="'+sourceType+'"]');
@@ -361,8 +347,6 @@
       const newSlug = feedSlugInput.value.trim();
       const urlRaw  = feedUrlInput.value.trim();
       const localPathRaw = feedLocalPathInput.value.trim();
-      const apiKey = feedApiKeyInput.value.trim();
-      const apiKeyHeader = feedApiHeaderInput.value.trim();
       const sourceType = (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url";
 
       if (!key) throw new Error("ADMIN_KEY is required.");
@@ -471,16 +455,16 @@
   // ---- Init ----
   window.addEventListener("DOMContentLoaded", async () => {
     loadSaved();
-    ["key","msg","feedSlug","feedUrl","feedLocalPath","feedApiKey","feedApiHeader"].forEach(id => {
+    ["key","msg","feedSlug","feedUrl","feedLocalPath"].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.addEventListener("input", saveNow);
+      if (el) el.value = "";
     });
     document.querySelectorAll('input[name="feedSourceType"]').forEach(r => {
       r.addEventListener("change", saveNow);
     });
     document.getElementById("clearSaved")?.addEventListener("click", () => {
       localStorage.removeItem(LS_KEY);
-      ["key","msg","feedSlug","feedUrl","feedLocalPath","feedApiKey","feedApiHeader"].forEach(id => {
+      ["key","msg","feedSlug","feedUrl","feedLocalPath"].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = "";
       });
