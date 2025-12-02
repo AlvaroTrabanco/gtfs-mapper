@@ -6,13 +6,5 @@
   {
     "slug": "ouibus",
     "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/fr-ile-de-france-blablacar-bus-gtfs-1314.zip?alt=media"
-  },
-  {
-    "slug": "alsa",
-    "url": "https://nap.transportes.gob.es/api/Fichero/download/1133",
-    "localPath": "",
-    "apiKey": "cd1afdcd-0e68-4f99-b57f-97d92a1124e6",
-    "apiKeyHeader": "ApiKey",
-    "sourceType": "url"
   }
 ]
