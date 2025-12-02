@@ -12,6 +12,8 @@
   button.primary { background: #0ea5e9; color: white; border-color: #0284c7; }
   .muted { color: #6b7280; font-size: 13px; }
   pre { background: #f8fafc; padding: 12px; border-radius: 8px; overflow: auto; }
+  fieldset { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 12px; margin: 8px 0 0; }
+  legend { padding: 0 4px; font-size: 13px; color: #4b5563; }
 </style>
 
 <h1>GTFS Admin — Upload <code>overrides.json</code></h1>
@@ -22,10 +24,6 @@
     <label>Admin key</label>
     <input type="password" id="key" placeholder="Your ADMIN_KEY" required />
 
-    <!-- <label>Public site base URL</label>
-    <input type="text" id="siteBase" placeholder="https://alvarotrabanco.github.io/gtfs-mapper" />
-    <p class="muted">Where <code>feeds.json</code> and <code>registry.json</code> are published (your GitHub Pages site).</p> -->
-
     <label>Feed</label>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       <select id="feedSelect" style="flex:1 1 260px;"></select>
@@ -33,10 +31,47 @@
     </div>
     <p class="muted">Pick an existing feed or create a new one below.</p>
 
+    <!-- NEW: Feed details card -->
+    <div class="card" style="margin:12px 0;">
+      <strong>Feed details</strong>
+
+      <label for="feedSlug">Feed slug</label>
+      <input type="text" id="feedSlug" placeholder="e.g. flixbus-de" />
+
+      <fieldset>
+        <legend>Source</legend>
+        <label style="display:flex; gap:8px; align-items:center; margin-top:4px;">
+          <input type="radio" name="feedSourceType" value="url" checked />
+          <span>Remote URL</span>
+        </label>
+        <input type="text" id="feedUrl" placeholder="https://example.com/gtfs.zip" />
+
+        <label style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+          <input type="radio" name="feedSourceType" value="file" />
+          <span>Local GTFS zip in repo</span>
+        </label>
+        <input type="text" id="feedLocalPath" placeholder="e.g. feeds/my-feed.zip (relative to gtfs-mapper/automation/)" />
+        <p class="muted">For local files, you’ll commit the <code>.zip</code> manually to the repo and just reference it here.</p>
+      </fieldset>
+
+      <label for="feedApiHeader">API header name <span class="muted">(optional)</span></label>
+      <input type="text" id="feedApiHeader" placeholder="Authorization" />
+
+      <label for="feedApiKey">API key / token <span class="muted">(optional)</span></label>
+      <input type="text" id="feedApiKey" placeholder="Will be stored in feeds.json" />
+
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button type="button" id="saveFeedBtn">Save / update feed</button>
+        <button type="button" id="deleteFeedBtn">Delete feed</button>
+      </div>
+      <p class="muted">Feeds are stored in <code>gtfs-mapper/automation/feeds.json</code>.</p>
+    </div>
+    <!-- END NEW: Feed details card -->
+
     <div class="card" style="margin:12px 0;">
       <strong>Overrides target</strong>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-        <input type="radio" name="ovTarget" value="perSlug" checked /> per-slug file (overrides-<slug>.json)
+        <input type="radio" name="ovTarget" value="perSlug" checked /> per-slug file (overrides-&lt;slug&gt;.json)
       </label>
       <label style="display:flex;gap:8px;align-items:center;">
         <input type="radio" name="ovTarget" value="global" /> global file (overrides.json)
@@ -47,7 +82,7 @@
     <input type="file" id="file" accept="application/json" />
 
     <label>Commit message <span class="muted">(optional)</span></label>
-    <input type="text" id="msg" placeholder="chore: update overrides-<slug>.json via admin" />
+    <input type="text" id="msg" placeholder="chore: update overrides-&lt;slug&gt;.json via admin" />
 
     <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
       <button type="submit" class="primary">Upload overrides for selected feed</button>
@@ -74,6 +109,13 @@
   const feedSelect = document.getElementById("feedSelect");
   const refreshFeedsBtn = document.getElementById("refreshFeeds");
   const deleteFeedBtn = document.getElementById("deleteFeedBtn");
+  const saveFeedBtn = document.getElementById("saveFeedBtn"); // NEW
+
+  const feedSlugInput = document.getElementById("feedSlug");          // NEW
+  const feedUrlInput = document.getElementById("feedUrl");            // NEW
+  const feedLocalPathInput = document.getElementById("feedLocalPath");// NEW
+  const feedApiKeyInput = document.getElementById("feedApiKey");      // NEW
+  const feedApiHeaderInput = document.getElementById("feedApiHeader");// NEW
 
   const LS_KEY = "gtfs_admin_uploader_v2";
   let lastJsonText = null;
@@ -86,21 +128,33 @@
       const bag = {
         adminKey: document.getElementById("key")?.value || "",
         commitMessage: document.getElementById("msg")?.value || "",
-        feedSlug: document.getElementById("feedSlug")?.value || "",
-        feedUrl: document.getElementById("feedUrl")?.value || "",
+        feedSlug: feedSlugInput?.value || "",
+        feedUrl: feedUrlInput?.value || "",
+        feedLocalPath: feedLocalPathInput?.value || "",
+        feedApiKey: feedApiKeyInput?.value || "",
+        feedApiHeader: feedApiHeaderInput?.value || "",
+        feedSourceType: (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url"
       };
       localStorage.setItem(LS_KEY, JSON.stringify(bag));
     } catch {}
   }
+
   function loadSaved() {
     try {
       const s = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
       if (s.adminKey) document.getElementById("key").value = s.adminKey;
       if (s.commitMessage) document.getElementById("msg").value = s.commitMessage;
-      if (s.feedSlug) document.getElementById("feedSlug").value = s.feedSlug;
-      if (s.feedUrl) document.getElementById("feedUrl").value = s.feedUrl;
+      if (s.feedSlug) feedSlugInput.value = s.feedSlug;
+      if (s.feedUrl) feedUrlInput.value = s.feedUrl;
+      if (s.feedLocalPath) feedLocalPathInput.value = s.feedLocalPath;
+      if (s.feedApiKey) feedApiKeyInput.value = s.feedApiKey;
+      if (s.feedApiHeader) feedApiHeaderInput.value = s.feedApiHeader;
+      if (s.feedSourceType && document.querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]')) {
+        document.querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]').checked = true;
+      }
     } catch {}
   }
+
   function uiMessage(html, color) {
     result.innerHTML = `<div style="color:${color||'#111'}">${html}</div>`;
   }
@@ -123,14 +177,31 @@
   function parseFeedsJSON(txt) {
     let j;
     try { j = JSON.parse(txt); } catch { throw new Error("feeds.json is not valid JSON"); }
+
+    function normalize(x, slugFromKey) {
+      if (typeof x === "string") {
+        return { slug: x, url: "", localPath: "", apiKey: "", apiKeyHeader: "" };
+      }
+      if (!x || typeof x !== "object") return null;
+      const slug = x.slug || slugFromKey;
+      if (!slug) return null;
+      return {
+        slug,
+        url: x.url || "",
+        localPath: x.localPath || "",
+        apiKey: x.apiKey || "",
+        apiKeyHeader: x.apiKeyHeader || ""
+      };
+    }
+
     if (Array.isArray(j)) {
-      return j.map(x => typeof x === "string" ? { slug:x, url:"" } : x).filter(x => x.slug);
+      return j.map(x => normalize(x)).filter(Boolean);
     }
     if (j && Array.isArray(j.feeds)) {
-      return j.feeds.map(x => typeof x === "string" ? { slug:x, url:"" } : x).filter(x => x.slug);
+      return j.feeds.map(x => normalize(x)).filter(Boolean);
     }
     if (j && typeof j === "object") {
-      return Object.entries(j).map(([k,v]) => ({ slug:k, url: typeof v === "string" ? v : v.url || "" }));
+      return Object.entries(j).map(([k,v]) => normalize(v, k)).filter(Boolean);
     }
     return [];
   }
@@ -162,7 +233,12 @@
     const cur = feedSelect.value;
     feedSelect.innerHTML =
       `<option value="">— Select a feed —</option>` +
-      feedsCache.map(f => `<option value="${f.slug}">${f.slug}${f.url ? " — " + f.url : ""}</option>`).join("");
+      feedsCache.map(f => {
+        let suffix = "";
+        if (f.url) suffix = " — " + f.url;
+        else if (f.localPath) suffix = " — (local: " + f.localPath + ")";
+        return `<option value="${f.slug}">${f.slug}${suffix}</option>`;
+      }).join("");
     if (cur) feedSelect.value = cur;
     onFeedChoiceChange();
   }
@@ -170,8 +246,16 @@
   function onFeedChoiceChange() {
     const slug = feedSelect.value;
     const found = feedsCache.find(f => f.slug === slug);
-    document.getElementById("feedSlug").value = slug || "";
-    document.getElementById("feedUrl").value  = found?.url || "";
+    feedSlugInput.value = slug || "";
+    feedUrlInput.value = found?.url || "";
+    feedLocalPathInput.value = found?.localPath || "";
+    feedApiKeyInput.value = found?.apiKey || "";
+    feedApiHeaderInput.value = found?.apiKeyHeader || "";
+
+    const sourceType = found?.localPath ? "file" : "url";
+    const radio = document.querySelector('input[name="feedSourceType"][value="'+sourceType+'"]');
+    if (radio) radio.checked = true;
+
     originalSlug = slug || "";
     saveNow();
   }
@@ -230,7 +314,7 @@
     e.preventDefault();
     try {
       const key  = document.getElementById("key").value.trim();
-      const slug = (feedSelect.value || document.getElementById("feedSlug").value || "").trim();
+      const slug = (feedSelect.value || feedSlugInput.value || "").trim();
       if (!key) throw new Error("ADMIN_KEY is required.");
       if (!slug) throw new Error("Pick or enter a feed slug.");
       const msg  = document.getElementById("msg").value.trim();
@@ -253,13 +337,13 @@
         uiMessage(`Uploaded into <code>gtfs-mapper/automation/overrides.json</code> for <code>${slug}</code>. Commit: <code>${payload.commit || "OK"}</code>`, "#065f46");
       } else {
         const targetPath = `gtfs-mapper/automation/overrides-${slug}.json`;
-        const bodyOnly   = JSON.stringify(normalized[slug] || {}, null, 2); // <— BODY ONLY
+        const bodyOnly   = JSON.stringify(normalized[slug] || {}, null, 2); // BODY ONLY
 
         const payload = await callFn({
           key,
           op: "writeFile",
           path: targetPath,
-          content: bodyOnly,  // <— NO WRAPPER
+          content: bodyOnly,  // NO WRAPPER
           commitMessage: msg || `chore: update overrides-${slug}.json via admin`
         });
 
@@ -271,16 +355,32 @@
   });
 
   // ---- Save/Update feed ----
-  document.getElementById("saveFeedBtn").addEventListener("click", async () => {
+  saveFeedBtn.addEventListener("click", async () => {
     try {
       const key = document.getElementById("key").value.trim();
-      const newSlug = document.getElementById("feedSlug").value.trim();
-      const url  = document.getElementById("feedUrl").value.trim();
+      const newSlug = feedSlugInput.value.trim();
+      const urlRaw  = feedUrlInput.value.trim();
+      const localPathRaw = feedLocalPathInput.value.trim();
+      const apiKey = feedApiKeyInput.value.trim();
+      const apiKeyHeader = feedApiHeaderInput.value.trim();
+      const sourceType = (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url";
+
       if (!key) throw new Error("ADMIN_KEY is required.");
-      if (!newSlug || !url) throw new Error("Both slug and feed URL are required.");
+      if (!newSlug) throw new Error("Feed slug is required.");
+
+      if (sourceType === "url" && !urlRaw) {
+        throw new Error("A URL is required when the source type is 'Remote URL'.");
+      }
+      if (sourceType === "file" && !localPathRaw) {
+        throw new Error("A local path is required when the source type is 'Local GTFS zip'.");
+      }
 
       const r = await callFn({ key, op:"readFile", path: feedsPath });
-      let current = []; try { const p = JSON.parse(r.content||"[]"); current = Array.isArray(p) ? p : (p.feeds||[]); } catch {}
+      let current = [];
+      try {
+        const p = JSON.parse(r.content||"[]");
+        current = Array.isArray(p) ? p : (p.feeds||[]);
+      } catch {}
       if (!Array.isArray(current)) current = [];
 
       // rename if slug changed
@@ -297,9 +397,30 @@
         current = current.filter(x => (x?.slug||x) !== originalSlug);
       }
 
+      let url = "";
+      let localPath = "";
+      if (sourceType === "url") {
+        url = urlRaw;
+      } else {
+        localPath = localPathRaw;
+      }
+
+      const newRecord = {
+        slug: newSlug,
+        url,
+        localPath,
+        apiKey,
+        apiKeyHeader,
+        sourceType
+      };
+
       const idx = current.findIndex(x => (x?.slug||x) === newSlug);
-      if (idx >= 0) current[idx] = { slug:newSlug, url };
-      else current.push({ slug:newSlug, url });
+      if (idx >= 0) {
+        const prev = current[idx] && typeof current[idx] === "object" ? current[idx] : { slug:newSlug };
+        current[idx] = Object.assign({}, prev, newRecord);
+      } else {
+        current.push(newRecord);
+      }
 
       const payload = await callFn({
         key, op: "writeFile", path: feedsPath,
@@ -350,13 +471,19 @@
   // ---- Init ----
   window.addEventListener("DOMContentLoaded", async () => {
     loadSaved();
-    ["key","msg","feedSlug","feedUrl"].forEach(id => {
+    ["key","msg","feedSlug","feedUrl","feedLocalPath","feedApiKey","feedApiHeader"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener("input", saveNow);
     });
+    document.querySelectorAll('input[name="feedSourceType"]').forEach(r => {
+      r.addEventListener("change", saveNow);
+    });
     document.getElementById("clearSaved")?.addEventListener("click", () => {
       localStorage.removeItem(LS_KEY);
-      ["key","msg","feedSlug","feedUrl"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+      ["key","msg","feedSlug","feedUrl","feedLocalPath","feedApiKey","feedApiHeader"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
     });
     await loadFeeds();
   });
