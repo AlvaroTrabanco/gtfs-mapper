@@ -162,8 +162,35 @@
   }
 
   // ---- Feeds parsing ----
+  function parseFeedsJSON(txt) {
+    let j;
+    try {
+      j = JSON.parse(txt);
+    } catch {
+      throw new Error("feeds.json is not valid JSON");
+    }
+
+    // Support formats:
+    // 1) [ { slug, url, localPath }, ... ]
+    // 2) { feeds: [ ... ] }
+    // 3) { flixbus: { url: ... }, ouibus: { ... }, ... }
+    if (Array.isArray(j)) {
+      return j.map(x => normalize(x)).filter(Boolean);
+    }
+    if (j && Array.isArray(j.feeds)) {
+      return j.feeds.map(x => normalize(x)).filter(Boolean);
+    }
+    if (j && typeof j === "object") {
+      return Object.entries(j)
+        .map(([k, v]) => normalize(v, k))
+        .filter(Boolean);
+    }
+    return [];
+  }
+
   function normalize(x, slugFromKey) {
     if (typeof x === "string") {
+      // old/simple format like ["flixbus", "ouibus"]
       return { slug: x, url: "", localPath: "" };
     }
     if (!x || typeof x !== "object") return null;
