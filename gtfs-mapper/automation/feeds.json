@@ -10,7 +10,7 @@
   {
     "slug": "alsa",
     "url": "",
-    "localPath": "/feeds/alsa.zip",
+    "localPath": "feeds/alsa.zip",
     "sourceType": "file"
   }
 ]
