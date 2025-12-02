@@ -235,7 +235,7 @@ jobs:
             }
 
             if ! run_builder; then
-              if echo " ${OPTIONAL_FEEDS} " | grep -q " ${SLUG} "; then
+              if echo " ${OPTIONAL_FEEDS:-} " | grep -q " ${SLUG} "; then
                 echo "Feed ${SLUG} failed but is marked OPTIONAL; continuing without failing the job."
               else
                 any_fail=1
