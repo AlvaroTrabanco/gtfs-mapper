@@ -214,6 +214,8 @@ jobs:
             if [ -n "${OVR_FILE}" ]; then
               FEED_SLUG="${SLUG}" \
               FEED_URL="${URL:-}" \
+              FEED_API_HEADER="${API_HEADER:-}" \
+              FEED_API_KEY="${API_KEY:-}" \
               OUT_DIR="site/${SLUG}" \
               OUT_ZIP="compiled.zip" \
               OUT_REPORT="report.json" \
@@ -222,6 +224,8 @@ jobs:
             else
               FEED_SLUG="${SLUG}" \
               FEED_URL="${URL:-}" \
+              FEED_API_HEADER="${API_HEADER:-}" \
+              FEED_API_KEY="${API_KEY:-}" \
               OUT_DIR="site/${SLUG}" \
               OUT_ZIP="compiled.zip" \
               OUT_REPORT="report.json" \
