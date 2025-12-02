@@ -179,8 +179,22 @@ export const handler = async (event) => {
     const msg = commitMessage || `chore: update ${filename} via admin uploader`;
     const result = await putFile(targetPath, overridesJson, msg);
     return { statusCode: 200, body: JSON.stringify(result) };
-  } catch (err) {
-    const code = err.status && Number.isInteger(err.status) ? err.status : 500;
-    return { statusCode: code, body: `Error: ${err.message}` };
-  }
-};
+    } catch (err) {
+      const code = err.status && Number.isInteger(err.status) ? err.status : 500;
+
+      // Log to Netlify function logs for debugging
+      console.error("upload-overrides error:", err);
+
+      // Return structured JSON so the Admin can show a proper message
+      const body = {
+        ok: false,
+        error: err && err.message ? String(err.message) : "Unknown error",
+        stack: err && err.stack ? String(err.stack) : undefined,
+      };
+
+      return {
+        statusCode: code,
+        body: JSON.stringify(body),
+      };
+    }
+  };
