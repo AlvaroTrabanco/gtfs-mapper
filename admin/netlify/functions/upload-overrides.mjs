@@ -114,55 +114,54 @@ export const handler = async (event) => {
     // upsert one slug in legacy gtfs-mapper/automation/overrides.json
     if (op === "upsertOverridesSlug") {
       if (!slug) {
+        return { statusCode: 400, body: "Bad Request: slug required" };
+      }
+
+      // accept either `content` or `overridesJson` from the client
+      const rawOverrides =
+        typeof content === "string" && content.trim()
+          ? content
+          : typeof overridesJson === "string" && overridesJson.trim()
+          ? overridesJson
+          : null;
+
+      if (!rawOverrides) {
         return {
           statusCode: 400,
-          body: "Bad Request: slug required",
+          body: "Bad Request: content/overridesJson (stringified JSON) required",
         };
       }
-      if (typeof content !== "string") {
+
+      let parsedForSlug;
+      try {
+        parsedForSlug = JSON.parse(rawOverrides);
+      } catch (e) {
         return {
           statusCode: 400,
-          body: "Bad Request: content (stringified JSON) required",
+          body: JSON.stringify({
+            ok: false,
+            error: `Invalid JSON for overrides slug '${slug}': ${e.message}`,
+          }),
         };
       }
 
       const p = "gtfs-mapper/automation/overrides.json";
       let obj = { overrides: {} };
 
-      // Load existing overrides.json if present
       try {
         const txt = (await getFile(p)).text;
         const parsed = JSON.parse(txt);
         obj = parsed && typeof parsed === "object" ? parsed : obj;
         if (!obj.overrides || typeof obj.overrides !== "object") obj.overrides = {};
       } catch (e) {
-        // If file doesn't exist yet, we'll create a new one; otherwise bubble up
-        if (e.status !== 404) throw e;
+        if (e.status !== 404) throw e; // if file missing, we start fresh
       }
 
-      // Validate incoming JSON for this slug
-      let parsedContent;
-      try {
-        parsedContent = JSON.parse(content);
-      } catch (e) {
-        // Return a clear 400 so the Admin UI can show a useful message
-        return {
-          statusCode: 400,
-          body: JSON.stringify({
-            ok: false,
-            error: `Invalid JSON in overrides for slug "${slug}": ${e.message}`,
-          }),
-        };
-      }
-
-      obj.overrides[slug] = parsedContent;
+      obj.overrides[slug] = parsedForSlug;
 
       const msg = commitMessage || `chore: upsert overrides for ${slug}`;
       const res = await putFile(p, JSON.stringify(obj, null, 2), msg);
-      return {
-        statusCode: 200,
-        body: JSON.stringify(res),
-      };
+      return { statusCode: 200, body: JSON.stringify(res) };
     }
 
     if (op === "deleteSlugFromOverrides") {
