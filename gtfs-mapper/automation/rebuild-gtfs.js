@@ -469,8 +469,15 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     }
 
     const present = new Set(stopTimes.map(st => `${st.trip_id}::${st.stop_id}`));
-    for (const k of Object.keys(restrictions)) {
-      if (!present.has(k)) {
+
+    METRICS.overrides.matchedPairs = 0;
+    METRICS.overrides.unmatchedPairs = 0;
+
+    for (const [k, r] of Object.entries(restrictions)) {
+      if (present.has(k)) {
+        METRICS.overrides.matchedPairs++;
+      } else {
+        METRICS.overrides.unmatchedPairs++;
         METRICS.missing.tripStopPairs++;
         METRICS.warnings.push(`Rule key not found in feed: ${k}`);
       }
@@ -478,6 +485,27 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
 
     const { trips: outTrips, stop_times: outStopTimes } =
       compileTripsWithOD({ trips, stop_times: stopTimes }, restrictions);
+
+    // Build a small sample of override rules and modified stop_times for debugging
+    const restrictionEntries = Object.entries(restrictions);
+    const sampleOverrides = restrictionEntries.slice(0, 20).map(([key, val]) => ({
+      key,
+      mode: val.mode,
+      dropoffOnlyFrom: val.dropoffOnlyFrom,
+      pickupOnlyTo: val.pickupOnlyTo,
+    }));
+
+    // Sample some modified stop_times: those where pickup_type or drop_off_type != 0
+    const modifiedSamples = outStopTimes
+      .filter(st => (st.pickup_type ?? 0) !== 0 || (st.drop_off_type ?? 0) !== 0)
+      .slice(0, 50)
+      .map(st => ({
+        trip_id: st.trip_id,
+        stop_id: st.stop_id,
+        stop_sequence: st.stop_sequence,
+        pickup_type: st.pickup_type,
+        drop_off_type: st.drop_off_type,
+      }));
 
     await fs.mkdir(OUT_DIR, { recursive: true });
     const outZip = new JSZip();
@@ -546,6 +574,12 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       source: sourceDescriptor,
       overridesSource: effectiveOverridesSource || "",
       artifacts: { zip: path.join(OUT_DIR, OUT_ZIP) },
+
+      // NEW: debug info
+      debug: {
+        sampleOverrides,
+        modifiedStopTimesSample: modifiedSamples,
+      },
     };
 
     const reportPath = path.join(OUT_DIR, OUT_REPORT);
