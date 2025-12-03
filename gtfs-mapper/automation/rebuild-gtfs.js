@@ -61,8 +61,8 @@ const touchTrip = (id) => METRICS.trips.touched.add(id);
 const touchStop = (id) => METRICS.stops.touched.add(id);
 
 /* ------------------------------ csv utils -------------------------------- */
-const parseCsv = (text) =>
-  (Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true }).data || []);
+// const parseCsv = (text) =>
+//   (Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true }).data || []);
 
 const csvify = (rows, headerOrder) => {
   const headers = (headerOrder?.length ? headerOrder : (rows?.[0] ? Object.keys(rows[0]) : []));
