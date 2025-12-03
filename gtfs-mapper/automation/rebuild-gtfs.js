@@ -158,39 +158,72 @@ function clampToTrip(seq, sid, drop, pick) {
 function importOverridesTolerant(raw, stop_times) {
   const byTripSeq = indexStopTimes(stop_times);
   const out = {};
+
+  // Allow several wrapper shapes:
+  // - { rules: [...] }
+  // - { restrictions: [...] }
+  // - plain array [...]
   const src = raw?.rules ?? raw?.restrictions ?? raw ?? {};
 
+  // --- ARRAY FORM: [{ trip_id/stop_id or tripId/stopId, ... }, ...] ---
   if (Array.isArray(src)) {
     for (const row of src) {
-      const tid = String(row.trip_id ?? "").trim();
-      const sid = String(row.stop_id ?? "").trim();
-      const mode = String(row.mode ?? "normal");
+      // Support both snake_case and camelCase keys
+      const tid = String(row.trip_id ?? row.tripId ?? "").trim();
+      const sid = String(row.stop_id ?? row.stopId ?? "").trim();
+      const mode = String(row.mode ?? "normal").trim();
+
       if (!tid || !sid || !mode) continue;
-      let drop = Array.isArray(row.dropoffOnlyFrom) ? row.dropoffOnlyFrom.map(String) : undefined;
-      let pick = Array.isArray(row.pickupOnlyTo)   ? row.pickupOnlyTo.map(String)   : undefined;
+
+      // Be tolerant with dropoffOnlyFrom / pickupOnlyTo naming
+      let drop = row.dropoffOnlyFrom ?? row.dropOffOnlyFrom ?? row.dropoff_from;
+      let pick = row.pickupOnlyTo   ?? row.pickUpOnlyTo   ?? row.pickup_to;
+
+      if (Array.isArray(drop)) drop = drop.map(String);
+      if (Array.isArray(pick)) pick = pick.map(String);
+
+      // If mapper uses "custom" without explicit lists, clamp them here
       if (mode === "custom") {
         const seq = byTripSeq.get(tid) ?? [];
         ({ drop, pick } = clampToTrip(seq, sid, drop, pick));
       }
-      out[`${tid}::${sid}`] = { mode, dropoffOnlyFrom: drop, pickupOnlyTo: pick };
+
+      out[`${tid}::${sid}`] = {
+        mode,
+        dropoffOnlyFrom: drop,
+        pickupOnlyTo: pick,
+      };
     }
     return out;
   }
 
+  // --- OBJECT FORM: { "<trip>::<stop>": { mode, ... }, ... } ---
   if (src && typeof src === "object") {
     for (const k of Object.keys(src)) {
-      const { mode } = src[k] || {};
+      const r = src[k] || {};
       const [tid, sid] = splitKey(k);
+      const mode = String(r.mode ?? "normal").trim();
       if (!tid || !sid || !mode) continue;
-      let drop = Array.isArray(src[k]?.dropoffOnlyFrom) ? src[k].dropoffOnlyFrom.map(String) : undefined;
-      let pick = Array.isArray(src[k]?.pickupOnlyTo)   ? src[k].pickupOnlyTo.map(String)   : undefined;
+
+      let drop = r.dropoffOnlyFrom ?? r.dropOffOnlyFrom ?? r.dropoff_from;
+      let pick = r.pickupOnlyTo   ?? r.pickUpOnlyTo   ?? r.pickup_to;
+
+      if (Array.isArray(drop)) drop = drop.map(String);
+      if (Array.isArray(pick)) pick = pick.map(String);
+
       if (mode === "custom") {
         const seq = byTripSeq.get(tid) ?? [];
         ({ drop, pick } = clampToTrip(seq, sid, drop, pick));
       }
-      out[`${tid}::${sid}`] = { mode, dropoffOnlyFrom: drop, pickupOnlyTo: pick };
+
+      out[`${tid}::${sid}`] = {
+        mode,
+        dropoffOnlyFrom: drop,
+        pickupOnlyTo: pick,
+      };
     }
   }
+
   return out;
 }
 
@@ -390,17 +423,35 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     try {
       const j = JSON.parse(overridesText || "{}");
 
-      if (j && typeof j === "object" && j.overrides && typeof j.overrides === "object") {
-        if (j.overrides[SLUG]) {
-          overridesRaw = j.overrides[SLUG];                          // exact match for this feed
-        } else {
-          const keys = Object.keys(j.overrides);
-          overridesRaw = keys.length === 1 ? j.overrides[keys[0]] : {}; // single other slug -> accept, else empty
+      const unwrap = (root) => {
+        if (!root || typeof root !== "object") return {};
+
+        // 1) Direct rules/restrictions or array (same as mapper)
+        if (Array.isArray(root.rules) || Array.isArray(root.restrictions) || Array.isArray(root)) {
+          return root;
         }
-      } else {
-        overridesRaw = j; // already a body (rules at top-level or array form)
-      }
-    } catch {
+
+        // 2) { overrides: { [slug]: {...} } }
+        if (root.overrides && typeof root.overrides === "object") {
+          if (root.overrides[SLUG]) return root.overrides[SLUG];
+          const keys = Object.keys(root.overrides);
+          if (keys.length === 1) return root.overrides[keys[0]];
+        }
+
+        // 3) { feeds: { [slug]: {...} } } (alternative naming)
+        if (root.feeds && typeof root.feeds === "object") {
+          if (root.feeds[SLUG]) return root.feeds[SLUG];
+          const keys = Object.keys(root.feeds);
+          if (keys.length === 1) return root.feeds[keys[0]];
+        }
+
+        // Fallback: treat as already-unwrapped body
+        return root;
+      };
+
+      overridesRaw = unwrap(j);
+    } catch (err) {
+      console.error("[overrides] Failed to parse JSON:", err?.message || err);
       overridesRaw = {};
     }
 
