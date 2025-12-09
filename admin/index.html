@@ -84,6 +84,9 @@
     </div>
 
     <label>Overrides JSON (for the selected feed)</label>
+    <p class="muted">
+      Only used when <strong>Use automatic Spanish border overrides</strong> is disabled.
+    </p>
     <input type="file" id="file" accept="application/json" />
 
     <label>Commit message <span class="muted">(optional)</span></label>
@@ -328,7 +331,6 @@
     });
   }
 
-  // ---- Upload overrides ----
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
@@ -336,6 +338,18 @@
       const slug = (feedSelect.value || feedSlugInput.value || "").trim();
       if (!key) throw new Error("ADMIN_KEY is required.");
       if (!slug) throw new Error("Pick or enter a feed slug.");
+
+      // NEW: if automatic Spanish overrides are enabled, skip upload logic entirely
+      const useAutoSpanish = !!autoSpanishOverridesInput?.checked;
+      if (useAutoSpanish) {
+        uiMessage(
+          `This feed is set to <code>Use automatic Spanish border overrides</code>.<br>` +
+          `You don't need to upload an overrides JSON. The weekly Action will generate and use it automatically.`,
+          "#6b7280"
+        );
+        return;
+      }
+
       const msg  = document.getElementById("msg").value.trim();
       const file = fileInput.files?.[0];
       if (!file) throw new Error("Pick an overrides JSON file.");
@@ -353,7 +367,11 @@
           body: normalized[slug] || {},
           msg
         });
-        uiMessage(`Uploaded into <code>gtfs-mapper/automation/overrides.json</code> for <code>${slug}</code>. Commit: <code>${payload.commit || "OK"}</code>`, "#065f46");
+        uiMessage(
+          `Uploaded into <code>gtfs-mapper/automation/overrides.json</code> for <code>${slug}</code>. ` +
+          `Commit: <code>${payload.commit || "OK"}</code>`,
+          "#065f46"
+        );
       } else {
         const targetPath = `gtfs-mapper/automation/overrides-${slug}.json`;
         const bodyOnly   = JSON.stringify(normalized[slug] || {}, null, 2); // BODY ONLY
@@ -362,11 +380,14 @@
           key,
           op: "writeFile",
           path: targetPath,
-          content: bodyOnly,  // NO WRAPPER
+          content: bodyOnly,
           commitMessage: msg || `chore: update overrides-${slug}.json via admin`
         });
 
-        uiMessage(`Uploaded per-slug file <code>${targetPath}</code>. Commit: <code>${payload.commit}</code>`, "#065f46");
+        uiMessage(
+          `Uploaded per-slug file <code>${targetPath}</code>. Commit: <code>${payload.commit}</code>`,
+          "#065f46"
+        );
       }
     } catch (err) {
       uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
