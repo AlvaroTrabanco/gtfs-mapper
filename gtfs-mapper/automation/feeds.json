@@ -1,7 +1,10 @@
 [
   {
     "slug": "flixbus",
-    "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/de-unknown-flixbus-gtfs-853.zip?alt=media"
+    "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/de-unknown-flixbus-gtfs-853.zip?alt=media",
+    "localPath": "",
+    "sourceType": "url",
+    "autoSpanishOverrides": true
   },
   {
     "slug": "ouibus",
