@@ -9,6 +9,8 @@ on:
       - "gtfs-mapper/automation/overrides.json"
       - "gtfs-mapper/automation/overrides-*.json"   # per-slug overrides (e.g., overrides-flixbus.json)
       - "gtfs-mapper/automation/rebuild-*.js"       # any builder variants you add
+      - "gtfs-mapper/automation/analyze_spanish_country_mismatches.py"  # NEW
+      - "gtfs-mapper/automation/spain.kml"                             # NEW
   workflow_dispatch: {}
   schedule:
     - cron: "0 0 * * 0"    # weekly on Sunday at midnight
@@ -352,12 +354,31 @@ jobs:
           (async function(){
             const app = document.getElementById("app");
             const get = async (p, fallback)=>{ try{ const r=await fetch(p); if(!r.ok) return fallback; return await r.json(); }catch{return fallback;} };
+
             const feedsRaw = await get("../feeds.json", []);
             const feedsArr = Array.isArray(feedsRaw) ? feedsRaw : (feedsRaw.feeds || []);
             const feeds = feedsArr.map(x=>typeof x==="string"?{slug:x,url:null}:x).filter(x=>x&&x.slug);
+
             const reg = await get("../registry.json", { slugsBuilt: [] });
             const built = new Set(reg.slugsBuilt || []);
-            const rows = feeds.map(f=>({ slug:f.slug, url:f.url||"", inSystem: built.has(f.slug) }));
+
+            // NEW: load Spanish country mismatches (if any)
+            const mismRaw = await get("../spanish-country-mismatches.json", null);
+            const mismFeeds = mismRaw && typeof mismRaw === "object" && mismRaw.feeds && typeof mismRaw.feeds === "object"
+              ? mismRaw.feeds
+              : {};
+
+            const rows = feeds.map(f => {
+              const slug = f.slug;
+              const mf = mismFeeds[slug];
+              const mismatchCount = Array.isArray(mf) ? mf.length : 0;
+              return {
+                slug,
+                url: f.url || "",
+                inSystem: built.has(slug),
+                mismatchCount,
+              };
+            });
             const mk=(t,a={},h="")=>{const e=document.createElement(t); for(const k in a)e.setAttribute(k,a[k]); e.innerHTML=h; return e;};
             const table=mk("table"); table.innerHTML="<thead><tr><th>Slug</th><th>URL</th><th>Status</th><th>Action</th></tr></thead>";
             const tbody=mk("tbody"); table.appendChild(tbody);
@@ -365,7 +386,20 @@ jobs:
               const tr=mk("tr");
               tr.appendChild(mk("td",{},`<code>${r.slug}</code>`));
               tr.appendChild(mk("td",{}, r.url?`<a href=\"${r.url}\" target=\"_blank\" rel=\"noopener\">${r.url}</a>`:"<em class=\"muted\">—</em>"));
-              tr.appendChild(mk("td",{}, r.inSystem?`<span class=\"pill ok\">in system</span>`:`<span class=\"pill miss\">not built</span>`));
+
+              // NEW: status + Spanish mismatch indicator
+              const statusParts = [];
+              statusParts.push(
+                r.inSystem
+                  ? '<span class="pill ok">in system</span>'
+                  : '<span class="pill miss">not built</span>'
+              );
+              if (r.mismatchCount > 0) {
+                statusParts.push(
+                  `<span class="pill miss">Spanish country mismatches: ${r.mismatchCount}</span>`
+                );
+              }
+              tr.appendChild(mk("td",{}, statusParts.join(" ")));
               const tdAct=mk("td"); const btn=mk("button",{},"Create overrides patch"); btn.onclick=()=>openPatch(r.slug,r.url); tdAct.appendChild(btn); tr.appendChild(tdAct); tbody.appendChild(tr);
             }
             const panel=mk("div",{class:"row"});
@@ -382,6 +416,27 @@ jobs:
           })();
           </script>'
           printf "%s\n" "$ADMIN_HTML" > site/admin/index.html
+
+      - name: Setup Python for mismatch analysis
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Analyze Spanish country mismatches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python automation/analyze_spanish_country_mismatches.py
+
+      - name: Publish Spanish mismatch report
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f automation/spanish-country-mismatches.json ]; then
+            cp automation/spanish-country-mismatches.json site/spanish-country-mismatches.json
+          else
+            echo "No spanish-country-mismatches.json found; skipping publish."
+          fi
 
       - name: Publish overrides (if present)
         shell: bash
