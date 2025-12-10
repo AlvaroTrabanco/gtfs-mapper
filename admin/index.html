@@ -78,7 +78,7 @@
     </div>
     <!-- END Feed details card -->
 
-    <div class="card" style="margin:12px 0;">
+    <div class="card" style="margin:12px 0;" data-section="overrides">
       <strong>Overrides target</strong>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;">
         <input type="radio" name="ovTarget" value="perSlug" checked /> per-slug file (overrides-&lt;slug&gt;.json)
@@ -171,7 +171,8 @@
         feedSlug: feedSlugInput?.value || "",
         feedUrl: feedUrlInput?.value || "",
         feedLocalPath: feedLocalPathInput?.value || "",
-        feedSourceType: (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url",
+        feedSourceType:
+          (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url",
         autoSpanishOverrides: !!autoSpanishOverridesInput?.checked,
       };
       localStorage.setItem(LS_KEY, JSON.stringify(bag));
@@ -186,8 +187,13 @@
       if (s.feedSlug) feedSlugInput.value = s.feedSlug;
       if (s.feedUrl) feedUrlInput.value = s.feedUrl;
       if (s.feedLocalPath) feedLocalPathInput.value = s.feedLocalPath;
-      if (s.feedSourceType && document.querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]')) {
-        document.querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]').checked = s.feedSourceType;
+      if (
+        s.feedSourceType &&
+        document.querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]')
+      ) {
+        document
+          .querySelector('input[name="feedSourceType"][value="'+s.feedSourceType+'"]')
+          .checked = s.feedSourceType;
       }
       if (typeof s.autoSpanishOverrides === "boolean" && autoSpanishOverridesInput) {
         autoSpanishOverridesInput.checked = s.autoSpanishOverrides;
@@ -196,27 +202,56 @@
   }
 
   function uiMessage(html, color) {
-    result.innerHTML = `<div style="color:${color||'#111'}">${html}</div>`;
+    result.innerHTML = `<div style="color:${color || "#111"}">${html}</div>`;
   }
 
-  // ---- Toggle overrides UI based on automatic flag ----
-  function updateAutoOverridesUI(isAuto) {
-    const disabled = !!isAuto;
+  // ---- Toggle overrides UI based on automatic flag (single source of truth) ----
+  function updateOverridesUI() {
+    const useAuto = !!autoSpanishOverridesInput?.checked;
 
-    if (fileInput) fileInput.disabled = disabled;
-    if (uploadButton) uploadButton.disabled = disabled;
-    ovTargetRadios.forEach(r => { r.disabled = disabled; });
+    const overridesSection = document.querySelector('[data-section="overrides"]');
+    const submitBtn = document.querySelector('button[type="submit"].primary');
+    const targetRadios = document.querySelectorAll('input[name="ovTarget"]');
 
-    if (autoOverridesHint) {
-      if (disabled) {
+    if (useAuto) {
+      // Visually dim overrides block
+      if (overridesSection) overridesSection.style.opacity = "0.45";
+
+      // Disable manual overrides controls
+      if (fileInput) fileInput.disabled = true;
+      targetRadios.forEach(r => (r.disabled = true));
+      if (submitBtn) submitBtn.disabled = true;
+
+      // Hint text
+      if (autoOverridesHint) {
         autoOverridesHint.style.display = "block";
         autoOverridesHint.innerHTML =
           "Automatic Spanish border overrides are enabled for this feed. " +
           "The nightly GitHub Action will generate and apply pickup/dropoff rules. " +
           "To upload manual overrides instead, uncheck the toggle above.";
-      } else {
+      }
+
+      uiMessage(
+        `This feed is set to <code>Use automatic Spanish border overrides</code>.<br>` +
+          `Manual overrides upload is disabled; the weekly GitHub Action will generate rules ` +
+          `from your Spanish timezone decisions.`,
+        "#6b7280"
+      );
+    } else {
+      if (overridesSection) overridesSection.style.opacity = "";
+
+      if (fileInput) fileInput.disabled = false;
+      targetRadios.forEach(r => (r.disabled = false));
+      if (submitBtn) submitBtn.disabled = false;
+
+      if (autoOverridesHint) {
         autoOverridesHint.style.display = "none";
         autoOverridesHint.textContent = "";
+      }
+
+      // Clear info message only if it’s one of ours
+      if (result.innerHTML.includes("Use automatic Spanish border overrides")) {
+        result.innerHTML = "";
       }
     }
   }
@@ -226,11 +261,16 @@
     const fnUrl = getFnUrl();
     const res = await fetch(fnUrl, {
       method: "POST",
-      headers: { "content-type":"application/json" },
-      body: JSON.stringify(body)
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
     });
     const text = await res.text();
-    let payload; try { payload = JSON.parse(text); } catch { payload = { ok:false, error:text }; }
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { ok: false, error: text };
+    }
     if (!res.ok || !payload.ok) throw new Error(payload.error || text);
     return payload;
   }
@@ -279,7 +319,7 @@
     const key = document.getElementById("key").value.trim();
     let raw = null;
     try {
-      const r = await callFn({ key, op:"readFile", path: feedsPath });
+      const r = await callFn({ key, op: "readFile", path: feedsPath });
       raw = r.content;
     } catch {}
     if (!raw) {
@@ -301,12 +341,14 @@
     const cur = feedSelect.value;
     feedSelect.innerHTML =
       `<option value="">— Select a feed —</option>` +
-      feedsCache.map(f => {
-        let suffix = "";
-        if (f.url) suffix = " — " + f.url;
-        else if (f.localPath) suffix = " — (local: " + f.localPath + ")";
-        return `<option value="${f.slug}">${f.slug}${suffix}</option>`;
-      }).join("");
+      feedsCache
+        .map(f => {
+          let suffix = "";
+          if (f.url) suffix = " — " + f.url;
+          else if (f.localPath) suffix = " — (local: " + f.localPath + ")";
+          return `<option value="${f.slug}">${f.slug}${suffix}</option>`;
+        })
+        .join("");
     if (cur) feedSelect.value = cur;
     onFeedChoiceChange();
   }
@@ -320,7 +362,7 @@
 
     try {
       const mismPath = "gtfs-mapper/automation/spanish-country-mismatches.json";
-      const decPath  = "gtfs-mapper/automation/spanish-country-decisions.json";
+      const decPath = "gtfs-mapper/automation/spanish-country-decisions.json";
 
       const [mismRes, decRes] = await Promise.all([
         callFn({ key, op: "readFile", path: mismPath }).catch(() => null),
@@ -328,15 +370,21 @@
       ]);
 
       if (mismRes && typeof mismRes.content === "string") {
-        try { spanishMismatches = JSON.parse(mismRes.content || "{}"); }
-        catch { spanishMismatches = {}; }
+        try {
+          spanishMismatches = JSON.parse(mismRes.content || "{}");
+        } catch {
+          spanishMismatches = {};
+        }
       } else {
         spanishMismatches = {};
       }
 
       if (decRes && typeof decRes.content === "string") {
-        try { spanishDecisions = JSON.parse(decRes.content || "{}") || { decisions: {} }; }
-        catch { spanishDecisions = { decisions: {} }; }
+        try {
+          spanishDecisions = JSON.parse(decRes.content || "{}") || { decisions: {} };
+        } catch {
+          spanishDecisions = { decisions: {} };
+        }
       } else {
         spanishDecisions = { decisions: {} };
       }
@@ -412,17 +460,17 @@
     alertsBadge.style.display = "inline-block";
 
     const sample = unresolved.slice(0, 100);
-    alertsList.innerHTML = sample.map(s => {
-      const stopId = s.stop_id || "";
-      const stopName = s.stop_name || "";
-      const tz = s.stop_timezone || s.timezone || "(no timezone)";
-      const tzCountry = s.timezone_country || "UNKNOWN";
-      const geoCountry = s.geo_country || s.kml_country || "";
-      const reason = s.reason || "";
-      const coords = (s.stop_lat != null && s.stop_lon != null)
-        ? `(${s.stop_lat}, ${s.stop_lon})`
-        : "";
-      return `
+    alertsList.innerHTML = sample
+      .map(s => {
+        const stopId = s.stop_id || "";
+        const stopName = s.stop_name || "";
+        const tz = s.stop_timezone || s.timezone || "(no timezone)";
+        const tzCountry = s.timezone_country || "UNKNOWN";
+        const geoCountry = s.geo_country || s.kml_country || "";
+        const reason = s.reason || "";
+        const coords =
+          s.stop_lat != null && s.stop_lon != null ? `(${s.stop_lat}, ${s.stop_lon})` : "";
+        return `
         <div class="alert-stop" data-stop-id="${stopId}">
           <strong>${stopName || "(no name)"}</strong>
           <small>stop_id: <code>${stopId}</code> ${coords}</small>
@@ -433,12 +481,17 @@
           </small>
           ${reason ? `<small>${reason}</small>` : ""}
           <div class="alert-actions">
-            <button type="button" data-action="approve" data-stop-id="${stopId}">Approve geo country</button>
-            <button type="button" data-action="discard" data-stop-id="${stopId}">Discard alert</button>
+            <button type="button" data-action="approve" data-stop-id="${stopId}">
+              Approve geo country
+            </button>
+            <button type="button" data-action="discard" data-stop-id="${stopId}">
+              Discard alert
+            </button>
           </div>
         </div>
       `;
-    }).join("");
+      })
+      .join("");
 
     if (count > sample.length) {
       alertsList.innerHTML += `<p class="muted">Showing first ${sample.length} stops out of ${count}.</p>`;
@@ -487,7 +540,9 @@
     feedLocalPathInput.value = found?.localPath || "";
 
     const sourceType = found?.sourceType || (found?.localPath ? "file" : "url");
-    const radio = document.querySelector('input[name="feedSourceType"][value="'+sourceType+'"]');
+    const radio = document.querySelector(
+      'input[name="feedSourceType"][value="' + sourceType + '"]'
+    );
     if (radio) radio.checked = true;
 
     const autoFlag = !!(found && found.autoSpanishOverrides);
@@ -497,29 +552,37 @@
     originalAutoSpanish = autoFlag;
     saveNow();
 
-    // Update overrides UI + alerts for this feed
-    updateAutoOverridesUI(autoFlag);
+    // Update overrides UI based on current auto flag
+    updateOverridesUI();
+
+    // Load alerts for this feed (if any)
     loadSpanishAlertsForSlug(slug);
   }
+
   feedSelect.addEventListener("change", onFeedChoiceChange);
   refreshFeedsBtn.addEventListener("click", loadFeeds);
 
+  // Keep overrides UI in sync when the toggle changes
   if (autoSpanishOverridesInput) {
     autoSpanishOverridesInput.addEventListener("change", () => {
-      updateAutoOverridesUI(!!autoSpanishOverridesInput.checked);
       saveNow();
+      updateOverridesUI();
     });
   }
 
   // ---- Preview ----
   previewBtn.addEventListener("click", async () => {
     const file = fileInput.files?.[0];
-    if (!file) { alert("Pick a file first."); return; }
+    if (!file) {
+      alert("Pick a file first.");
+      return;
+    }
     const text = await file.text();
     lastJsonText = text;
     try {
       const obj = JSON.parse(text);
-      result.innerHTML = "<h3>Preview</h3><pre>" + JSON.stringify(obj, null, 2) + "</pre>";
+      result.innerHTML =
+        "<h3>Preview</h3><pre>" + JSON.stringify(obj, null, 2) + "</pre>";
     } catch {
       result.innerHTML = "<div style='color:#b91c1c'>Invalid JSON.</div>";
     }
@@ -527,11 +590,14 @@
 
   // ---- Normalize overrides ----
   function normalizeOverridesForSlug(rawObj, slug) {
-    if (!rawObj || typeof rawObj !== "object") throw new Error("Overrides must be a JSON object.");
+    if (!rawObj || typeof rawObj !== "object")
+      throw new Error("Overrides must be a JSON object.");
     if (rawObj.overrides && typeof rawObj.overrides === "object") {
       const o = rawObj.overrides;
       if (o[slug]) return { [slug]: o[slug] };
-      throw new Error(`Slug mismatch. Selected "${slug}", found ${Object.keys(o).join(", ")}.`);
+      throw new Error(
+        `Slug mismatch. Selected "${slug}", found ${Object.keys(o).join(", ")}.`
+      );
     }
     if (rawObj[slug]) return { [slug]: rawObj[slug] };
     return { [slug]: rawObj };
@@ -542,10 +608,11 @@
     const p = "gtfs-mapper/automation/overrides.json";
     let current = { overrides: {} };
     try {
-      const r = await callFn({ key, op:"readFile", path: p });
+      const r = await callFn({ key, op: "readFile", path: p });
       const j = JSON.parse(r.content || "{}");
       current = j && typeof j === "object" ? j : current;
-      if (!current.overrides || typeof current.overrides !== "object") current.overrides = {};
+      if (!current.overrides || typeof current.overrides !== "object")
+        current.overrides = {};
     } catch {}
     current.overrides[slug] = body || {};
     return await callFn({
@@ -553,15 +620,16 @@
       op: "writeFile",
       path: p,
       content: JSON.stringify(current, null, 2),
-      commitMessage: msg || `chore: upsert ${slug} in overrides.json via admin`
+      commitMessage:
+        msg || `chore: upsert ${slug} in overrides.json via admin`,
     });
   }
 
   // ---- Upload overrides ----
-  form.addEventListener("submit", async (e) => {
+  form.addEventListener("submit", async e => {
     e.preventDefault();
     try {
-      const key  = document.getElementById("key").value.trim();
+      const key = document.getElementById("key").value.trim();
       const slug = (feedSelect.value || feedSlugInput.value || "").trim();
       if (!key) throw new Error("ADMIN_KEY is required.");
       if (!slug) throw new Error("Pick or enter a feed slug.");
@@ -570,44 +638,47 @@
       if (useAutoSpanish) {
         uiMessage(
           `This feed is set to <code>Use automatic Spanish border overrides</code>.<br>` +
-          `You don't need to upload an overrides JSON. The weekly Action will generate and use it automatically.`,
+            `You don't need to upload an overrides JSON. The weekly Action will generate and use it automatically.`,
           "#6b7280"
         );
         return;
       }
 
-      const msg  = document.getElementById("msg").value.trim();
+      const msg = document.getElementById("msg").value.trim();
       const file = fileInput.files?.[0];
       if (!file) throw new Error("Pick an overrides JSON file.");
 
-      const txt = lastJsonText || await file.text();
+      const txt = lastJsonText || (await file.text());
       const parsed = JSON.parse(txt);
       const normalized = normalizeOverridesForSlug(parsed, slug);
 
-      const targetChoice = document.querySelector('input[name="ovTarget"]:checked')?.value || "perSlug";
+      const targetChoice =
+        document.querySelector('input[name="ovTarget"]:checked')?.value ||
+        "perSlug";
 
       if (targetChoice === "global") {
         const payload = await upsertGlobalOverride({
           key,
           slug,
           body: normalized[slug] || {},
-          msg
+          msg,
         });
         uiMessage(
           `Uploaded into <code>gtfs-mapper/automation/overrides.json</code> for <code>${slug}</code>. ` +
-          `Commit: <code>${payload.commit || "OK"}</code>`,
+            `Commit: <code>${payload.commit || "OK"}</code>`,
           "#065f46"
         );
       } else {
         const targetPath = `gtfs-mapper/automation/overrides-${slug}.json`;
-        const bodyOnly   = JSON.stringify(normalized[slug] || {}, null, 2);
+        const bodyOnly = JSON.stringify(normalized[slug] || {}, null, 2);
 
         const payload = await callFn({
           key,
           op: "writeFile",
           path: targetPath,
           content: bodyOnly,
-          commitMessage: msg || `chore: update overrides-${slug}.json via admin`
+          commitMessage:
+            msg || `chore: update overrides-${slug}.json via admin`,
         });
 
         uiMessage(
@@ -616,7 +687,10 @@
         );
       }
     } catch (err) {
-      uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
+      uiMessage(
+        `<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`,
+        "#b91c1c"
+      );
     }
   });
 
@@ -625,40 +699,50 @@
     try {
       const key = document.getElementById("key").value.trim();
       const newSlug = feedSlugInput.value.trim();
-      const urlRaw  = feedUrlInput.value.trim();
+      const urlRaw = feedUrlInput.value.trim();
       const localPathRaw = feedLocalPathInput.value.trim();
-      const sourceType = (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url";
+      const sourceType =
+        (document.querySelector('input[name="feedSourceType"]:checked')?.value) ||
+        "url";
       const autoSpanishOverrides = !!autoSpanishOverridesInput?.checked;
 
       if (!key) throw new Error("ADMIN_KEY is required.");
       if (!newSlug) throw new Error("Feed slug is required.");
 
       if (sourceType === "url" && !urlRaw) {
-        throw new Error("A URL is required when the source type is 'Remote URL'.");
+        throw new Error(
+          "A URL is required when the source type is 'Remote URL'."
+        );
       }
       if (sourceType === "file" && !localPathRaw) {
-        throw new Error("A local path is required when the source type is 'Local GTFS zip'.");
+        throw new Error(
+          "A local path is required when the source type is 'Local GTFS zip'."
+        );
       }
 
-      const r = await callFn({ key, op:"readFile", path: feedsPath });
+      const r = await callFn({ key, op: "readFile", path: feedsPath });
       let current = [];
       try {
-        const p = JSON.parse(r.content||"[]");
-        current = Array.isArray(p) ? p : (p.feeds||[]);
+        const p = JSON.parse(r.content || "[]");
+        current = Array.isArray(p) ? p : p.feeds || [];
       } catch {}
       if (!Array.isArray(current)) current = [];
 
       if (originalSlug && originalSlug !== newSlug) {
         await callFn({
-          key, op:"moveFile",
-          src:`gtfs-mapper/automation/overrides-${originalSlug}.json`,
-          dest:`gtfs-mapper/automation/overrides-${newSlug}.json`,
-          commitMessage:`chore: rename overrides file ${originalSlug} -> ${newSlug}`
-        }).catch(()=>{});
+          key,
+          op: "moveFile",
+          src: `gtfs-mapper/automation/overrides-${originalSlug}.json`,
+          dest: `gtfs-mapper/automation/overrides-${newSlug}.json`,
+          commitMessage: `chore: rename overrides file ${originalSlug} -> ${newSlug}`,
+        }).catch(() => {});
         await callFn({
-          key, op:"renameSlugInOverrides", slug: originalSlug, newSlug
-        }).catch(()=>{});
-        current = current.filter(x => (x?.slug||x) !== originalSlug);
+          key,
+          op: "renameSlugInOverrides",
+          slug: originalSlug,
+          newSlug,
+        }).catch(() => {});
+        current = current.filter(x => (x?.slug || x) !== originalSlug);
       }
 
       let url = "";
@@ -677,28 +761,39 @@
         autoSpanishOverrides,
       };
 
-      const idx = current.findIndex(x => (x?.slug||x) === newSlug);
+      const idx = current.findIndex(x => (x?.slug || x) === newSlug);
       if (idx >= 0) {
-        const prev = current[idx] && typeof current[idx] === "object" ? current[idx] : { slug:newSlug };
+        const prev =
+          current[idx] && typeof current[idx] === "object"
+            ? current[idx]
+            : { slug: newSlug };
         current[idx] = Object.assign({}, prev, newRecord);
       } else {
         current.push(newRecord);
       }
 
       const payload = await callFn({
-        key, op: "writeFile", path: feedsPath,
+        key,
+        op: "writeFile",
+        path: feedsPath,
         content: JSON.stringify(current, null, 2),
-        commitMessage: `chore: update feeds.json (${newSlug})`
+        commitMessage: `chore: update feeds.json (${newSlug})`,
       });
 
-      uiMessage(`Saved ${newSlug}. Commit: <code>${payload.commit}</code>`, "#065f46");
+      uiMessage(
+        `Saved ${newSlug}. Commit: <code>${payload.commit}</code>`,
+        "#065f46"
+      );
       originalSlug = newSlug;
       originalAutoSpanish = autoSpanishOverrides;
       await loadFeeds();
       feedSelect.value = newSlug;
       onFeedChoiceChange();
     } catch (err) {
-      uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
+      uiMessage(
+        `<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`,
+        "#b91c1c"
+      );
     }
   });
 
@@ -709,50 +804,76 @@
       const slug = (feedSelect.value || "").trim();
       if (!key) throw new Error("ADMIN_KEY is required.");
       if (!slug) throw new Error("Select a feed first.");
-      if (!confirm(`Delete feed "${slug}"?\nThis removes it from feeds.json and deletes overrides-${slug}.json`)) return;
+      if (
+        !confirm(
+          `Delete feed "${slug}"?\nThis removes it from feeds.json and deletes overrides-${slug}.json`
+        )
+      )
+        return;
 
-      const r = await callFn({ key, op:"readFile", path: feedsPath });
-      let current = []; try { const p = JSON.parse(r.content||"[]"); current = Array.isArray(p) ? p : (p.feeds||[]); } catch {}
-      const next = current.filter(x => (x?.slug||x) !== slug);
+      const r = await callFn({ key, op: "readFile", path: feedsPath });
+      let current = [];
+      try {
+        const p = JSON.parse(r.content || "[]");
+        current = Array.isArray(p) ? p : p.feeds || [];
+      } catch {}
+      const next = current.filter(x => (x?.slug || x) !== slug);
 
       await callFn({
-        key, op: "writeFile", path: feedsPath,
+        key,
+        op: "writeFile",
+        path: feedsPath,
         content: JSON.stringify(next, null, 2),
-        commitMessage: `chore: remove feed ${slug} from feeds.json`
+        commitMessage: `chore: remove feed ${slug} from feeds.json`,
       });
-      await callFn({ key, op:"deleteFile", path:`gtfs-mapper/automation/overrides-${slug}.json` }).catch(()=>{});
-      await callFn({ key, op:"deleteSlugFromOverrides", slug, path:"gtfs-mapper/automation/overrides.json" }).catch(()=>{});
+      await callFn({
+        key,
+        op: "deleteFile",
+        path: `gtfs-mapper/automation/overrides-${slug}.json`,
+      }).catch(() => {});
+      await callFn({
+        key,
+        op: "deleteSlugFromOverrides",
+        slug,
+        path: "gtfs-mapper/automation/overrides.json",
+      }).catch(() => {});
 
       uiMessage(`Deleted "${slug}" and its overrides.`, "#7c2d12");
       await loadFeeds();
       feedSelect.value = "";
       onFeedChoiceChange();
     } catch (err) {
-      uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
+      uiMessage(
+        `<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`,
+        "#b91c1c"
+      );
     }
   });
 
   // ---- Init ----
   window.addEventListener("DOMContentLoaded", async () => {
     loadSaved();
-    ["key","msg","feedSlug","feedUrl","feedLocalPath","autoSpanishOverrides"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener("input", saveNow);
-    });
+    ["key", "msg", "feedSlug", "feedUrl", "feedLocalPath", "autoSpanishOverrides"].forEach(
+      id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("input", saveNow);
+      }
+    );
     document.querySelectorAll('input[name="feedSourceType"]').forEach(r => {
       r.addEventListener("change", saveNow);
     });
     document.getElementById("clearSaved")?.addEventListener("click", () => {
       localStorage.removeItem(LS_KEY);
-      ["key","msg","feedSlug","feedUrl","feedLocalPath","autoSpanishOverrides"].forEach(id => {
+      ["key", "msg", "feedSlug", "feedUrl", "feedLocalPath"].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = "";
       });
       if (autoSpanishOverridesInput) autoSpanishOverridesInput.checked = false;
-      updateAutoOverridesUI(false);
+      updateOverridesUI();
     });
+
     // Apply UI state based on whatever was loaded from LS first
-    updateAutoOverridesUI(!!autoSpanishOverridesInput?.checked);
+    updateOverridesUI();
     await loadFeeds();
   });
 </script>
