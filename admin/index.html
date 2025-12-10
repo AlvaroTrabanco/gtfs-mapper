@@ -17,6 +17,8 @@
   .badge { display:inline-block; border-radius:9999px; padding:2px 8px; font-size:11px; background:#f97316; color:white; }
   .alert-stop { border-bottom:1px solid #e5e7eb; padding:4px 0; }
   .alert-stop small { display:block; color:#6b7280; }
+  .alert-actions { margin-top:4px; display:flex; gap:8px; flex-wrap:wrap; }
+  .alert-actions button { font-size:11px; padding:4px 8px; }
 </style>
 
 <h1>GTFS Admin — Upload <code>overrides.json</code></h1>
@@ -149,6 +151,9 @@
   let feedsCache = [];
   let originalSlug = "";
   let originalAutoSpanish = false;
+    // Spanish timezone mismatch data (loaded lazily)
+  let spanishMismatches = null;          // { feeds: { [slug]: [ ...stops ] } }
+  let spanishDecisions = { decisions: {} }; // { decisions: { "slug::stop_id": { decision, updatedAt } } }
 
   // cache of aggregated Spanish mismatch data from automation/spanish-country-mismatches.json
   let spanishMismatchData = null;
@@ -315,6 +320,71 @@
     }
   }
 
+  // ---- Spanish mismatch data loader (global + decisions) ----
+  async function ensureSpanishDataLoaded() {
+    if (spanishMismatches && spanishDecisions) return;
+
+    const key = document.getElementById("key").value.trim();
+    if (!key) return;
+
+    try {
+      const mismPath = "gtfs-mapper/automation/spanish-country-mismatches.json";
+      const decPath  = "gtfs-mapper/automation/spanish-country-decisions.json";
+
+      const [mismRes, decRes] = await Promise.all([
+        callFn({ key, op: "readFile", path: mismPath }).catch(() => null),
+        callFn({ key, op: "readFile", path: decPath }).catch(() => null),
+      ]);
+
+      if (mismRes && typeof mismRes.content === "string") {
+        try { spanishMismatches = JSON.parse(mismRes.content || "{}"); }
+        catch { spanishMismatches = {}; }
+      } else {
+        spanishMismatches = {};
+      }
+
+      if (decRes && typeof decRes.content === "string") {
+        try { spanishDecisions = JSON.parse(decRes.content || "{}") || { decisions: {} }; }
+        catch { spanishDecisions = { decisions: {} }; }
+      } else {
+        spanishDecisions = { decisions: {} };
+      }
+
+      if (!spanishDecisions.decisions || typeof spanishDecisions.decisions !== "object") {
+        spanishDecisions.decisions = {};
+      }
+    } catch {
+      spanishMismatches = {};
+      spanishDecisions = { decisions: {} };
+    }
+  }
+
+  async function applySpanishDecision(slug, stopId, decision) {
+    const adminKey = document.getElementById("key").value.trim();
+    if (!adminKey) throw new Error("ADMIN_KEY is required.");
+    if (!spanishDecisions || typeof spanishDecisions !== "object") {
+      spanishDecisions = { decisions: {} };
+    }
+    if (!spanishDecisions.decisions || typeof spanishDecisions.decisions !== "object") {
+      spanishDecisions.decisions = {};
+    }
+
+    const compoundKey = `${slug}::${stopId}`;
+    spanishDecisions.decisions[compoundKey] = {
+      decision, // "approve" or "discard"
+      updatedAt: new Date().toISOString(),
+    };
+
+    await callFn({
+      key: adminKey,
+      op: "writeFile",
+      path: "gtfs-mapper/automation/spanish-country-decisions.json",
+      content: JSON.stringify(spanishDecisions, null, 2),
+      commitMessage: `chore: mark ${compoundKey} as ${decision} (Spanish timezone review)`,
+    });
+  }
+
+  // ---- Alerts loader (per-slug, uses global mismatches + decisions) ----
   async function loadSpanishAlertsForSlug(slug) {
     if (!alertsCard) return;
 
@@ -325,29 +395,21 @@
 
     if (!slug) return;
 
-    // Make sure we have the aggregated data
-    await ensureSpanishMismatchDataLoaded();
-    if (!spanishMismatchData || !spanishMismatchData.feeds) return;
+    await ensureSpanishDataLoaded();
+    const feedsMap = (spanishMismatches && spanishMismatches.feeds) || {};
+    const all = Array.isArray(feedsMap[slug]) ? feedsMap[slug] : [];
 
-    // Expected structure:
-    // {
-    //   feeds: {
-    //     "<slug>": [
-    //       { stop_id, stop_name, stop_lat, stop_lon, stop_timezone, timezone_country, reason? },
-    //       ...
-    //     ],
-    //     ...
-    //   },
-    //   generated_at: "...",
-    //   version: 1
-    // }
-    const suspicious = Array.isArray(spanishMismatchData.feeds[slug])
-      ? spanishMismatchData.feeds[slug]
-      : [];
-    const count = suspicious.length;
+    const decMap = (spanishDecisions && spanishDecisions.decisions) || {};
+    const unresolved = all.filter(s => {
+      const sid = (s.stop_id || "").trim();
+      if (!sid) return false;
+      const key = `${slug}::${sid}`;
+      return !decMap[key]; // hide already decided stops
+    });
 
+    const count = unresolved.length;
     if (!count) {
-      alertsCard.style.display = "none";
+      // no pending alerts for this feed
       return;
     }
 
@@ -358,22 +420,31 @@
     alertsBadge.textContent = `${count} issue${count === 1 ? "" : "s"}`;
     alertsBadge.style.display = "inline-block";
 
-    const sample = suspicious.slice(0, 50);
+    const sample = unresolved.slice(0, 100);
     alertsList.innerHTML = sample.map(s => {
       const stopId = s.stop_id || "";
       const stopName = s.stop_name || "";
-      const tz = s.stop_timezone || "(no timezone)";
+      const tz = s.stop_timezone || s.timezone || "(no timezone)";
       const tzCountry = s.timezone_country || "UNKNOWN";
+      const geoCountry = s.geo_country || s.kml_country || "";
       const reason = s.reason || "";
       const coords = (s.stop_lat != null && s.stop_lon != null)
         ? `(${s.stop_lat}, ${s.stop_lon})`
         : "";
       return `
-        <div class="alert-stop">
+        <div class="alert-stop" data-stop-id="${stopId}">
           <strong>${stopName || "(no name)"}</strong>
           <small>stop_id: <code>${stopId}</code> ${coords}</small>
-          <small>timezone: <code>${tz}</code> → tz_country: ${tzCountry}</small>
+          <small>
+            timezone: <code>${tz}</code>
+            → tz_country: ${tzCountry}
+            ${geoCountry ? ` · geo_country: ${geoCountry}` : ""}
+          </small>
           ${reason ? `<small>${reason}</small>` : ""}
+          <div class="alert-actions">
+            <button type="button" data-action="approve" data-stop-id="${stopId}">Approve geo country</button>
+            <button type="button" data-action="discard" data-stop-id="${stopId}">Discard alert</button>
+          </div>
         </div>
       `;
     }).join("");
@@ -381,8 +452,39 @@
     if (count > sample.length) {
       alertsList.innerHTML += `<p class="muted">Showing first ${sample.length} stops out of ${count}.</p>`;
     }
-  }
 
+    // Wire buttons to approve/discard
+    alertsList.querySelectorAll("button[data-action]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const action = btn.getAttribute("data-action");
+        const stopId = btn.getAttribute("data-stop-id") || "";
+        if (!stopId) return;
+
+        const decision = action === "approve" ? "approve" : "discard";
+        btn.disabled = true;
+        try {
+          await applySpanishDecision(slug, stopId, decision);
+
+          const row = btn.closest(".alert-stop");
+          if (row) row.remove();
+
+          const remaining = alertsList.querySelectorAll(".alert-stop").length;
+          if (!remaining) {
+            alertsCard.style.display = "none";
+            alertsBadge.style.display = "none";
+            alertsSummary.textContent = "";
+          } else {
+            alertsSummary.textContent =
+              `${remaining} Spanish stop${remaining === 1 ? "" : "s"} need manual timezone / country review.`;
+            alertsBadge.textContent = `${remaining} issue${remaining === 1 ? "" : "s"}`;
+          }
+        } catch (err) {
+          btn.disabled = false;
+          alert("Failed to save decision: " + ((err && err.message) || err));
+        }
+      });
+    });
+  }
   // ---- Feed selection ----
   function onFeedChoiceChange() {
     const slug = feedSelect.value;
