@@ -776,8 +776,8 @@
     });
   }
 
-  // ---- Decisions history renderer -----------------------------------------
 
+  // ---- Decisions history renderer -----------------------------------------
   async function renderSpanishDecisionsForSlug(slug) {
     if (!decisionsCard) return;
 
@@ -788,29 +788,30 @@
     if (!slug) return;
 
     await ensureSpanishDataLoaded();
-    const decMap = (spanishDecisions && spanishDecisions.decisions) || {};
-    const feedsMap = (spanishMismatches && spanishMismatches.feeds) || {};
-    const mismForSlug = Array.isArray(feedsMap[slug]) ? feedsMap[slug] : [];
 
-    const indexByStopId = {};
-    mismForSlug.forEach(row => {
-      const sid = (row.stop_id || "").trim();
-      if (sid && !indexByStopId[sid]) {
-        indexByStopId[sid] = row;
+    // Build a map stop_id -> stop_name from the mismatch data for this slug
+    const feedsMap = (spanishMismatches && spanishMismatches.feeds) || {};
+    const mismatchesForSlug = Array.isArray(feedsMap[slug]) ? feedsMap[slug] : [];
+    const nameByStopId = {};
+    mismatchesForSlug.forEach(m => {
+      const sid = (m.stop_id || "").trim();
+      if (!sid) return;
+      if (!nameByStopId[sid]) {
+        nameByStopId[sid] = m.stop_name || "";
       }
     });
 
+    const decMap = (spanishDecisions && spanishDecisions.decisions) || {};
     const items = Object.entries(decMap)
       .filter(([key]) => key.startsWith(slug + "::"))
       .map(([key, val]) => {
         const parts = key.split("::");
-        const stopId = parts[1] || "";
+        const stopId = (parts[1] || "").trim();
+        const stopName = nameByStopId[stopId] || "";
         const d = val || {};
         const decision = d.decision || "unknown";
         const newCountry = normalizeCountryCode(d.newCountry);
         const updatedAt = d.updatedAt || "";
-        const row = indexByStopId[stopId];
-        const stopName = row ? (row.stop_name || "") : "";
         return { stopId, stopName, decision, newCountry, updatedAt };
       });
 
@@ -837,9 +838,13 @@
         lineText = item.decision;
       }
 
+      // Prefer stop_name as the main title, fall back to stop_id if missing
+      const nameHeader = item.stopName || item.stopId || "(no name)";
+
       return `
         <div class="decision-row" data-stop-id="${item.stopId}">
-          <strong>stop_id: <code>${item.stopId}</code></strong>
+          <strong>${nameHeader}</strong>
+          <small>stop_id: <code>${item.stopId}</code></small>
           <small>${lineText}</small>
           ${item.updatedAt ? `<small>Updated: ${item.updatedAt}</small>` : ""}
           <div class="decision-actions">
@@ -849,6 +854,7 @@
       `;
     }).join("");
 
+    // Wire up "Revert decision" buttons
     decisionsList.querySelectorAll('button[data-action="revert"]').forEach(btn => {
       btn.addEventListener("click", async () => {
         const stopId = btn.getAttribute("data-stop-id") || "";
@@ -877,6 +883,110 @@
     });
   }
 
+
+    if (!decisionsCard) return;
+
+    decisionsCard.style.display = "none";
+    decisionsSummary.textContent = "";
+    decisionsList.innerHTML = "";
+
+    if (!slug) return;
+
+    await ensureSpanishDataLoaded();
+
+    // Build a map stop_id -> stop_name from the mismatch data for this slug
+    const feedsMap = (spanishMismatches && spanishMismatches.feeds) || {};
+    const mismatchesForSlug = Array.isArray(feedsMap[slug]) ? feedsMap[slug] : [];
+    const nameByStopId = {};
+    mismatchesForSlug.forEach(m => {
+      const sid = (m.stop_id || "").trim();
+      if (!sid) return;
+      if (!nameByStopId[sid]) {
+        nameByStopId[sid] = m.stop_name || "";
+      }
+    });
+
+    const decMap = (spanishDecisions && spanishDecisions.decisions) || {};
+    const items = Object.entries(decMap)
+      .filter(([key]) => key.startsWith(slug + "::"))
+      .map(([key, val]) => {
+        const parts = key.split("::");
+        const stopId = (parts[1] || "").trim();
+        const stopName = nameByStopId[stopId] || "";
+        const d = val || {};
+        const decision = d.decision || "unknown";
+        const newCountry = normalizeCountryCode(d.newCountry);
+        const updatedAt = d.updatedAt || "";
+        return { stopId, stopName, decision, newCountry, updatedAt };
+      });
+
+    if (!items.length) {
+      return;
+    }
+
+    decisionsCard.style.display = "block";
+    decisionsSummary.textContent =
+      `${items.length} decision${items.length === 1 ? "" : "s"} stored for this feed.`;
+
+    decisionsList.innerHTML = items.map(item => {
+      const labelCountry = item.newCountry ? formatCountryLabel(item.newCountry) : "";
+
+      let lineText;
+      if (item.decision === "approve") {
+        // Show the actual approved country instead of a generic label
+        lineText = labelCountry
+          ? `Approved: ${labelCountry}`
+          : "Approved (no country set)";
+      } else if (item.decision === "discard") {
+        lineText = "Discarded alert";
+      } else {
+        lineText = item.decision;
+      }
+
+      // Prefer stop_name as the main title, fall back to stop_id if missing
+      const nameHeader = item.stopName || item.stopId || "(no name)";
+
+      return `
+        <div class="decision-row" data-stop-id="${item.stopId}">
+          <strong>${nameHeader}</strong>
+          <small>stop_id: <code>${item.stopId}</code></small>
+          <small>${lineText}</small>
+          ${item.updatedAt ? `<small>Updated: ${item.updatedAt}</small>` : ""}
+          <div class="decision-actions">
+            <button type="button" class="btn-revert" data-action="revert" data-stop-id="${item.stopId}">Revert decision</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // Wire up "Revert decision" buttons
+    decisionsList.querySelectorAll('button[data-action="revert"]').forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const stopId = btn.getAttribute("data-stop-id") || "";
+        if (!stopId) return;
+        btn.disabled = true;
+        try {
+          await revertSpanishDecision(slug, stopId);
+          const row = btn.closest(".decision-row");
+          if (row) row.remove();
+
+          const remaining = decisionsList.querySelectorAll(".decision-row").length;
+          if (!remaining) {
+            decisionsCard.style.display = "none";
+            decisionsSummary.textContent = "";
+          } else {
+            decisionsSummary.textContent =
+              `${remaining} decision${remaining === 1 ? "" : "s"} stored for this feed.`;
+          }
+
+          await loadSpanishAlertsForSlug(slug);
+        } catch (err) {
+          btn.disabled = false;
+          alert("Failed to revert: " + ((err && err.message) || err));
+        }
+      });
+    });
+  }
   // ---- Feed selection ----
   async function onFeedChoiceChange() {
     const slug = feedSelect.value;
