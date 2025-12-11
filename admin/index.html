@@ -52,6 +52,13 @@
     cursor: default;
   }
 
+  /* Selected state (for decisions list) */
+  .btn-approve.selected,
+  .btn-discard.selected {
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+    font-weight: 700;
+  }
+
   /* Decisions dropdown area */
   #decisionsPanel {
     border-top: 1px dashed #e5e7eb;
@@ -523,7 +530,8 @@
         const assignedName = labelCountry(tzCountry);
         const probableName = geoCountry ? labelCountry(geoCountry) : "Unknown";
         const when = meta.updatedAt || "";
-        const decisionLabel = meta.decision === "approve" ? "Approved new country" : "Discarded alert";
+        const isApproved = meta.decision === "approve";
+        const decisionLabel = isApproved ? "Approved new country" : "Discarded alert";
 
         return `
           <div class="decision-item">
@@ -540,13 +548,69 @@
               Probable country:
               <span class="country-probable">${probableName}</span>.
             </small>
-            <small>${decisionLabel}${when ? ` · ${when}` : ""}</small>
+            <small data-role="decision-label">
+              ${decisionLabel}${when ? ` · ${when}` : ""}
+            </small>
+            <div class="alert-actions">
+              <button
+                type="button"
+                class="btn-approve decision-btn ${isApproved ? "selected" : ""}"
+                data-action="approve"
+                data-stop-id="${stopId}"
+              >
+                ✓ Approve new country
+              </button>
+              <button
+                type="button"
+                class="btn-discard decision-btn ${!isApproved ? "selected" : ""}"
+                data-action="discard"
+                data-stop-id="${stopId}"
+              >
+                ✕ Discard
+              </button>
+            </div>
           </div>
         `;
       })
       .join("");
 
     decisionsBody.innerHTML = items;
+
+    // Hook buttons in the decisions list (allow changing/reverting decision)
+    decisionsBody.querySelectorAll(".decision-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const action = btn.getAttribute("data-action");
+        const stopId = btn.getAttribute("data-stop-id") || "";
+        if (!stopId || !action) return;
+
+        const decision = action === "approve" ? "approve" : "discard";
+        btn.disabled = true;
+        try {
+          await applySpanishDecision(slug, stopId, decision);
+
+          // Update local UI state (selected button + label)
+          const container = btn.closest(".decision-item");
+          if (container) {
+            container.querySelectorAll(".decision-btn").forEach(b => {
+              b.classList.remove("selected");
+              b.disabled = false;
+            });
+            btn.classList.add("selected");
+
+            const labelNode = container.querySelector('small[data-role="decision-label"]');
+            if (labelNode) {
+              const when = new Date().toISOString();
+              labelNode.textContent =
+                (decision === "approve" ? "Approved new country" : "Discarded alert") +
+                " · " + when;
+            }
+          }
+        } catch (err) {
+          btn.disabled = false;
+          alert("Failed to update decision: " + ((err && err.message) || err));
+        }
+      });
+    });
   }
 
   if (toggleDecisionsBtn && decisionsBody) {
@@ -593,15 +657,17 @@
     });
 
     const count = unresolved.length;
+
+    alertsCard.style.display = "block";
+
     if (!count) {
-      // no pending alerts for this feed; still render decisions panel if any
-      alertsCard.style.display = "block";
+      alertsSummary.textContent = "No pending Spanish timezone/country alerts for this feed.";
+      alertsBadge.style.display = "none";
+      // Still show decisions if we have any
       renderDecisionsForSlug(slug);
-      const decFeeds = (spanishDecisions && spanishDecisions.decisions) || {};
       return;
     }
 
-    alertsCard.style.display = "block";
     alertsSummary.textContent =
       `${count} Spanish stop${count === 1 ? "" : "s"} need manual timezone / country review.`;
 
@@ -654,7 +720,7 @@
       alertsList.innerHTML += `<p class="muted">Showing first ${sample.length} stops out of ${count}.</p>`;
     }
 
-    // Wire buttons to approve/discard
+    // Wire buttons to approve/discard for unresolved stops
     alertsList.querySelectorAll("button[data-action]").forEach(btn => {
       btn.addEventListener("click", async () => {
         const action = btn.getAttribute("data-action");
