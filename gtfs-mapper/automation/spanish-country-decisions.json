@@ -34,6 +34,11 @@
       "decision": "approve",
       "updatedAt": "2025-12-11T10:53:32.766Z",
       "newCountry": "ES"
+    },
+    "flixbus::6b082645-67f6-4b62-abd3-4ad5a7645de2": {
+      "decision": "approve",
+      "updatedAt": "2025-12-11T10:53:53.379Z",
+      "newCountry": "FR"
     }
   }
 }
