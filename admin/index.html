@@ -824,14 +824,23 @@
 
     decisionsList.innerHTML = items.map(item => {
       const labelCountry = item.newCountry ? formatCountryLabel(item.newCountry) : "";
-      const decLabel = item.decision === "approve" ? "Approved new country" :
-                       item.decision === "discard" ? "Discarded alert" :
-                       item.decision;
+
+      let lineText;
+      if (item.decision === "approve") {
+        // Show the actual approved country instead of a generic label
+        lineText = labelCountry
+          ? `Approved: ${labelCountry}`
+          : "Approved (no country set)";
+      } else if (item.decision === "discard") {
+        lineText = "Discarded alert";
+      } else {
+        lineText = item.decision;
+      }
+
       return `
         <div class="decision-row" data-stop-id="${item.stopId}">
-          <strong>${item.stopName || "(no name)"}</strong>
-          <small>stop_id: <code>${item.stopId}</code></small>
-          <small>${decLabel}${labelCountry ? ` — ${labelCountry}` : ""}</small>
+          <strong>stop_id: <code>${item.stopId}</code></strong>
+          <small>${lineText}</small>
           ${item.updatedAt ? `<small>Updated: ${item.updatedAt}</small>` : ""}
           <div class="decision-actions">
             <button type="button" class="btn-revert" data-action="revert" data-stop-id="${item.stopId}">Revert decision</button>
