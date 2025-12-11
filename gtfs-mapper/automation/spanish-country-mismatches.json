@@ -1,0 +1,129 @@
+{
+  "generatedAt": "2025-12-11T09:01:30.547627Z",
+  "feeds": {
+    "flixbus": [
+      {
+        "stop_id": "3d3b4c58-6834-4deb-b63d-24151c219981",
+        "stop_name": "Port Aventura World",
+        "stop_lat": 41.087066,
+        "stop_lon": 1.145952,
+        "stop_timezone": "Europe/Madrid",
+        "timezone_country": "ES",
+        "geo_country": "",
+        "in_spain_polygon": false,
+        "mismatch_type": "TZ_ES_OUTSIDE_SP",
+        "reason": "Timezone country is ES but geometry is outside Spain polygon."
+      },
+      {
+        "stop_id": "687eb82b-bc6a-45c5-93cc-3c186b7ecc06",
+        "stop_name": "Alicante (Bus Station)",
+        "stop_lat": 38.337817,
+        "stop_lon": -0.49137,
+        "stop_timezone": "Europe/Madrid",
+        "timezone_country": "ES",
+        "geo_country": "",
+        "in_spain_polygon": false,
+        "mismatch_type": "TZ_ES_OUTSIDE_SP",
+        "reason": "Timezone country is ES but geometry is outside Spain polygon."
+      },
+      {
+        "stop_id": "6b082645-67f6-4b62-abd3-4ad5a7645de2",
+        "stop_name": "Les Ménuires (Bus Station)",
+        "stop_lat": 45.32533,
+        "stop_lon": 6.53819,
+        "stop_timezone": "Europe/Madrid",
+        "timezone_country": "ES",
+        "geo_country": "",
+        "in_spain_polygon": false,
+        "mismatch_type": "TZ_ES_OUTSIDE_SP",
+        "reason": "Timezone country is ES but geometry is outside Spain polygon."
+      },
+      {
+        "stop_id": "9b6b1ee3-3ecb-11ea-8017-02437075395e",
+        "stop_name": "Hendaye",
+        "stop_lat": 43.351134,
+        "stop_lon": -1.783269,
+        "stop_timezone": "Europe/Paris",
+        "timezone_country": "FR",
+        "geo_country": "ES",
+        "in_spain_polygon": true,
+        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
+        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
+      },
+      {
+        "stop_id": "c7d5c43d-c243-4a09-813b-e526de1a3c12",
+        "stop_name": "Benidorm (Bus Station)",
+        "stop_lat": 38.548831,
+        "stop_lon": -0.124099,
+        "stop_timezone": "Europe/Madrid",
+        "timezone_country": "ES",
+        "geo_country": "",
+        "in_spain_polygon": false,
+        "mismatch_type": "TZ_ES_OUTSIDE_SP",
+        "reason": "Timezone country is ES but geometry is outside Spain polygon."
+      }
+    ],
+    "ouibus": [
+      {
+        "stop_id": "XHD",
+        "stop_name": "Hendaye",
+        "stop_lat": 43.351104,
+        "stop_lon": -1.783282,
+        "stop_timezone": "Europe/Paris",
+        "timezone_country": "FR",
+        "geo_country": "ES",
+        "in_spain_polygon": true,
+        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
+        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
+      },
+      {
+        "stop_id": "AOV",
+        "stop_name": "Oviedo",
+        "stop_lat": 43.369175,
+        "stop_lon": -5.850884,
+        "stop_timezone": "Europe/Paris",
+        "timezone_country": "FR",
+        "geo_country": "ES",
+        "in_spain_polygon": true,
+        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
+        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
+      },
+      {
+        "stop_id": "ALC",
+        "stop_name": "A Coruña",
+        "stop_lat": 43.353256,
+        "stop_lon": -8.405308,
+        "stop_timezone": "Europe/Paris",
+        "timezone_country": "FR",
+        "geo_country": "ES",
+        "in_spain_polygon": true,
+        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
+        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
+      },
+      {
+        "stop_id": "ASA",
+        "stop_name": "Santiago de Compostela - Bus Station",
+        "stop_lat": 42.869917,
+        "stop_lon": -8.544112,
+        "stop_timezone": "Europe/Paris",
+        "timezone_country": "FR",
+        "geo_country": "ES",
+        "in_spain_polygon": true,
+        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
+        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
+      },
+      {
+        "stop_id": "AVG",
+        "stop_name": "Vigo - Bus Station",
+        "stop_lat": 42.23462,
+        "stop_lon": -8.713703,
+        "stop_timezone": "Europe/Paris",
+        "timezone_country": "FR",
+        "geo_country": "ES",
+        "in_spain_polygon": true,
+        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
+        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
+      }
+    ]
+  }
+}

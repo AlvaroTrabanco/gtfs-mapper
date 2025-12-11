@@ -5,20 +5,21 @@ Analyze Spanish country mismatches for all feeds marked autoSpanishOverrides.
 - Reads:
     automation/feeds.json
     automation/spain.kml          # Spain polygon(s) in KML
-    site/<slug>/gtfs.zip          # built/downloaded GTFS per feed
+    site/<slug>/gtfs.zip          # built/downloaded GTFS per feed, if present
+    (fallback) downloads GTFS from feeds.json URL or copies from localPath.
 
 - For each feed where autoSpanishOverrides === true:
-    * Open site/<slug>/gtfs.zip
+    * Ensure a GTFS zip exists (site/<slug>/gtfs.zip or freshly downloaded)
     * Read stops.txt
     * For each stop:
         - Determine if coordinates fall inside the Spain polygon(s)
-        - Map stop_timezone -> tz_country (ES/FR/PT/UNKNOWN)
+        - Map stop_timezone -> timezone_country (ES/FR/PT/UNKNOWN)
         - If either:
-            - tz_country == "ES"  XOR  in_spain_polygon is True
+            - timezone_country == "ES"  XOR  in_spain_polygon is True
           then record a mismatch.
 
 - Writes:
-    site/spanish-country-mismatches.json
+    automation/spanish-country-mismatches.json
 
 JSON shape:
 {
@@ -28,12 +29,14 @@ JSON shape:
       {
         "stop_id": "...",
         "stop_name": "...",
-        "lat": 43.3511,
-        "lon": -1.7833,
+        "stop_lat": 43.3511,
+        "stop_lon": -1.7833,
         "stop_timezone": "Europe/Paris",
-        "tz_country": "FR",
+        "timezone_country": "FR",
+        "geo_country": "ES",
         "in_spain_polygon": true,
-        "mismatch_type": "NON_ES_TZ_INSIDE_SP"
+        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
+        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
       },
       ...
     ]
@@ -46,7 +49,8 @@ from __future__ import annotations
 import csv
 import io
 import json
-import math
+import shutil
+import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -59,7 +63,7 @@ ROOT = HERE.parent                                   # gtfs-mapper/
 FEEDS_JSON = ROOT / "automation" / "feeds.json"
 SPAIN_KML = ROOT / "automation" / "spain.kml"
 SITE_DIR = ROOT / "site"
-OUT_JSON = SITE_DIR / "spanish-country-mismatches.json"
+OUT_JSON = HERE / "spanish-country-mismatches.json"  # automation/spanish-country-mismatches.json
 
 # ---- timezone → country mapping --------------------------------------------
 
@@ -163,7 +167,12 @@ def point_in_spain(lon: float, lat: float, polygons: List[List[Tuple[float, floa
 def load_feeds_with_auto_flag() -> List[Dict[str, Any]]:
     """
     Parse automation/feeds.json and return normalized records with:
-        { "slug": str, "autoSpanishOverrides": bool }
+        {
+          "slug": str,
+          "autoSpanishOverrides": bool,
+          "url": str,
+          "localPath": str
+        }
     """
     if not FEEDS_JSON.exists():
         raise SystemExit(f"[error] feeds.json not found at {FEEDS_JSON}")
@@ -180,7 +189,14 @@ def load_feeds_with_auto_flag() -> List[Dict[str, Any]]:
     feeds: List[Dict[str, Any]] = []
     for x in feeds_raw:
         if isinstance(x, str):
-            feeds.append({"slug": x, "autoSpanishOverrides": False})
+            feeds.append(
+                {
+                    "slug": x,
+                    "autoSpanishOverrides": False,
+                    "url": "",
+                    "localPath": "",
+                }
+            )
             continue
         if not isinstance(x, dict):
             continue
@@ -191,6 +207,8 @@ def load_feeds_with_auto_flag() -> List[Dict[str, Any]]:
             {
                 "slug": slug,
                 "autoSpanishOverrides": bool(x.get("autoSpanishOverrides")),
+                "url": (x.get("url") or "").strip(),
+                "localPath": (x.get("localPath") or "").strip(),
             }
         )
 
@@ -216,6 +234,61 @@ def iter_stops_from_gtfs_zip(zip_path: Path):
             return
 
 
+def ensure_gtfs_zip_for_feed(feed: Dict[str, Any]) -> Path | None:
+    """
+    Ensure we have site/<slug>/gtfs.zip for this feed.
+
+    Order:
+      1) If site/<slug>/gtfs.zip exists, use it (CI case).
+      2) Else, if feed.url is http(s), download to site/<slug>/gtfs.zip.
+      3) Else, if feed.localPath is set and file exists, copy it there.
+      4) Else, return None.
+    """
+    slug = feed["slug"]
+    zip_path = SITE_DIR / slug / "gtfs.zip"
+
+    # 1) Already present (CI / local build)
+    if zip_path.exists():
+        return zip_path
+
+    url = (feed.get("url") or "").strip()
+    local_path = (feed.get("localPath") or "").strip()
+
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 2) Try remote URL
+    if url.startswith("http://") or url.startswith("https://"):
+        print(f"[info] Downloading GTFS for '{slug}' from {url} ...")
+        try:
+            with urllib.request.urlopen(url) as resp, open(zip_path, "wb") as out:
+                shutil.copyfileobj(resp, out)
+            print(f"[info] Saved GTFS to {zip_path}")
+            return zip_path
+        except Exception as e:
+            print(f"[warn] Failed to download GTFS for '{slug}' from {url}: {e}")
+
+    # 3) Try localPath (relative to automation/ or repo root)
+    if local_path:
+        rel_candidate = HERE / local_path
+        if not rel_candidate.exists():
+            rel_candidate = ROOT / local_path
+
+        if rel_candidate.exists():
+            print(f"[info] Copying GTFS for '{slug}' from {rel_candidate} ...")
+            try:
+                shutil.copyfile(rel_candidate, zip_path)
+                print(f"[info] Copied GTFS to {zip_path}")
+                return zip_path
+            except Exception as e:
+                print(f"[warn] Failed to copy GTFS for '{slug}' from {rel_candidate}: {e}")
+        else:
+            print(f"[warn] localPath for '{slug}' does not exist: {rel_candidate}")
+
+    # 4) Give up
+    print(f"[warn] No GTFS source available for '{slug}' (no site zip, no valid url/localPath).")
+    return None
+
+
 # ---- main analysis ---------------------------------------------------------
 
 def main() -> None:
@@ -232,12 +305,14 @@ def main() -> None:
 
     for feed in auto_feeds:
         slug = feed["slug"]
-        zip_path = SITE_DIR / slug / "gtfs.zip"
-        if not zip_path.exists():
-            print(f"[warn] site/{slug}/gtfs.zip not found; skipping")
+
+        # Ensure we have a GTFS zip (either from site/ or freshly fetched)
+        zip_path = ensure_gtfs_zip_for_feed(feed)
+        if not zip_path or not zip_path.exists():
+            print(f"[warn] GTFS zip not available for '{slug}'; skipping")
             continue
 
-        print(f"[info] Analyzing Spanish country mismatches for feed '{slug}' ...")
+        print(f"[info] Analyzing Spanish country mismatches for feed '{slug}' using {zip_path} ...")
 
         mismatches: List[Dict[str, Any]] = []
         checked = 0
@@ -273,16 +348,31 @@ def main() -> None:
                 mismatch_type = "UNKNOWN_TZ_INSIDE_SP"
 
             if mismatch_type:
+                # Human-readable reason for the Admin UI
+                if mismatch_type == "TZ_ES_OUTSIDE_SP":
+                    reason = "Timezone country is ES but geometry is outside Spain polygon."
+                elif mismatch_type == "NON_ES_TZ_INSIDE_SP":
+                    reason = "Lat/Lon in Spain but timezone maps to non-ES country."
+                elif mismatch_type == "UNKNOWN_TZ_INSIDE_SP":
+                    reason = "Lat/Lon in Spain but timezone is missing or unmapped."
+                else:
+                    reason = ""
+
                 mismatches.append(
                     {
                         "stop_id": stop_id,
                         "stop_name": stop_name,
-                        "lat": lat,
-                        "lon": lon,
+                        # Admin expects these exact keys:
+                        "stop_lat": lat,
+                        "stop_lon": lon,
                         "stop_timezone": tz_raw or "",
-                        "tz_country": tz_country,
+                        "timezone_country": tz_country,
+                        # For display / semantics:
+                        "geo_country": "ES" if in_spain else "",
+                        # Extra debug fields:
                         "in_spain_polygon": in_spain,
                         "mismatch_type": mismatch_type,
+                        "reason": reason,
                     }
                 )
 
