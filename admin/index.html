@@ -62,11 +62,6 @@
     color:#fff;
     border-color:#15803d;
   }
-  .btn-discard {
-    background:#fee2e2;
-    color:#b91c1c;
-    border-color:#fecaca;
-  }
 
   /* Decisions section */
   #decisionsCard details > summary {
@@ -256,6 +251,64 @@
   let spanishMismatches = null;             // { feeds: { [slug]: [ ...stops ] } }
   let spanishDecisions = { decisions: {} }; // { decisions: { "slug::stop_id": { decision, newCountry, updatedAt } } }
 
+  // ---- Country data (Europe) ----------------------------------------------
+
+  const COUNTRY_LABELS = {
+    AL: "Albania",
+    AD: "Andorra",
+    AT: "Austria",
+    BY: "Belarus",
+    BE: "Belgium",
+    BA: "Bosnia and Herzegovina",
+    BG: "Bulgaria",
+    HR: "Croatia",
+    CY: "Cyprus",
+    CZ: "Czechia",
+    DK: "Denmark",
+    EE: "Estonia",
+    FI: "Finland",
+    FR: "France",
+    DE: "Germany",
+    GR: "Greece",
+    HU: "Hungary",
+    IS: "Iceland",
+    IE: "Ireland",
+    IT: "Italy",
+    LV: "Latvia",
+    LI: "Liechtenstein",
+    LT: "Lithuania",
+    LU: "Luxembourg",
+    MT: "Malta",
+    MD: "Moldova",
+    MC: "Monaco",
+    ME: "Montenegro",
+    NL: "Netherlands",
+    MK: "North Macedonia",
+    NO: "Norway",
+    PL: "Poland",
+    PT: "Portugal",
+    RO: "Romania",
+    RU: "Russia",
+    SM: "San Marino",
+    RS: "Serbia",
+    SK: "Slovakia",
+    SI: "Slovenia",
+    ES: "Spain",
+    SE: "Sweden",
+    CH: "Switzerland",
+    UA: "Ukraine",
+    GB: "United Kingdom",
+    VA: "Vatican City",
+    // Territories / dependencies often relevant for GTFS work
+    FO: "Faroe Islands",
+    GL: "Greenland",
+    GI: "Gibraltar",
+    IM: "Isle of Man",
+    GG: "Guernsey",
+    JE: "Jersey",
+    AX: "Åland Islands"
+  };
+
   // ---- Helpers: country normalisation/labels/options ----------------------
 
   function normalizeCountryCode(code) {
@@ -266,39 +319,34 @@
   }
 
   function deriveProbableCountry(mismatch) {
-    // We only have tz_country + in_spain_polygon from the Python script
     const tzCountry = normalizeCountryCode(mismatch.tz_country);
     const inSpain = !!mismatch.in_spain_polygon;
 
     if (inSpain) {
       return "ES";
     }
-    // If it's marked ES by TZ but not in Spain polygon, we don't really know,
-    // but ES is still better than "UNKNOWN".
     if (tzCountry === "ES") return "ES";
-
-    // otherwise fall back to TZ's country (FR/PT/…)
     return tzCountry;
   }
 
   function buildCountryOptions(assignedCode, probableCode) {
-    const base = ["ES", "FR", "PT"]; // likely ones for Spanish border feeds
-    const set = new Set();
+    const europeCodes = Object.keys(COUNTRY_LABELS);
+    const set = new Set(europeCodes);
 
-    [assignedCode, probableCode, ...base].forEach(c => {
+    [assignedCode, probableCode].forEach(c => {
       const cc = normalizeCountryCode(c);
       if (cc) set.add(cc);
     });
 
-    return Array.from(set);
+    return Array.from(set).sort((a, b) =>
+      formatCountryLabel(a).localeCompare(formatCountryLabel(b), undefined, { sensitivity: "base" })
+    );
   }
 
   function formatCountryLabel(code) {
     const c = normalizeCountryCode(code);
     if (!c) return "";
-    if (c === "ES") return "Spain";
-    if (c === "FR") return "France";
-    if (c === "PT") return "Portugal";
+    if (COUNTRY_LABELS[c]) return COUNTRY_LABELS[c];
     return c; // fallback to raw code
   }
 
@@ -562,7 +610,7 @@
     }
 
     const payload = {
-      decision, // "approve" | "discard"
+      decision, // "approve"
       updatedAt: nowIso,
     };
     const normalizedCountry = normalizeCountryCode(newCountryCode);
@@ -572,7 +620,9 @@
 
     spanishDecisions.decisions[compoundKey] = payload;
 
-    await writeSpanishDecisions(`chore: mark ${compoundKey} as ${decision}${normalizedCountry ? " ("+normalizedCountry+")" : ""} (Spanish timezone review)`);
+    await writeSpanishDecisions(
+      `chore: mark ${compoundKey} as ${decision}${normalizedCountry ? " ("+normalizedCountry+")" : ""} (Spanish timezone review)`
+    );
   }
 
   async function revertSpanishDecision(slug, stopId) {
@@ -677,7 +727,6 @@
           ${countriesHtml}
           <div class="alert-actions">
             <button type="button" class="btn-approve" data-action="approve" data-stop-id="${stopId}">✓ Approve new country</button>
-            <button type="button" class="btn-discard" data-action="discard" data-stop-id="${stopId}">✕ Discard</button>
           </div>
         </div>
       `;
@@ -687,10 +736,9 @@
       alertsList.innerHTML += `<p class="muted">Showing first ${sample.length} stops out of ${count}.</p>`;
     }
 
-    // Wire buttons to approve/discard and use dropdown value
-    alertsList.querySelectorAll("button[data-action]").forEach(btn => {
+    // Wire approve button and use dropdown value
+    alertsList.querySelectorAll("button[data-action='approve']").forEach(btn => {
       btn.addEventListener("click", async () => {
-        const action = btn.getAttribute("data-action");
         const stopId = btn.getAttribute("data-stop-id") || "";
         if (!stopId) return;
 
@@ -701,7 +749,7 @@
           selectedCountry = normalizeCountryCode(select.value);
         }
 
-        const decision = action === "approve" ? "approve" : "discard";
+        const decision = "approve";
         btn.disabled = true;
         try {
           await applySpanishDecision(slug, stopId, decision, selectedCountry);
@@ -741,6 +789,17 @@
 
     await ensureSpanishDataLoaded();
     const decMap = (spanishDecisions && spanishDecisions.decisions) || {};
+    const feedsMap = (spanishMismatches && spanishMismatches.feeds) || {};
+    const mismForSlug = Array.isArray(feedsMap[slug]) ? feedsMap[slug] : [];
+
+    const indexByStopId = {};
+    mismForSlug.forEach(row => {
+      const sid = (row.stop_id || "").trim();
+      if (sid && !indexByStopId[sid]) {
+        indexByStopId[sid] = row;
+      }
+    });
+
     const items = Object.entries(decMap)
       .filter(([key]) => key.startsWith(slug + "::"))
       .map(([key, val]) => {
@@ -750,7 +809,9 @@
         const decision = d.decision || "unknown";
         const newCountry = normalizeCountryCode(d.newCountry);
         const updatedAt = d.updatedAt || "";
-        return { stopId, decision, newCountry, updatedAt };
+        const row = indexByStopId[stopId];
+        const stopName = row ? (row.stop_name || "") : "";
+        return { stopId, stopName, decision, newCountry, updatedAt };
       });
 
     if (!items.length) {
@@ -768,7 +829,8 @@
                        item.decision;
       return `
         <div class="decision-row" data-stop-id="${item.stopId}">
-          <strong>stop_id: <code>${item.stopId}</code></strong>
+          <strong>${item.stopName || "(no name)"}</strong>
+          <small>stop_id: <code>${item.stopId}</code></small>
           <small>${decLabel}${labelCountry ? ` — ${labelCountry}` : ""}</small>
           ${item.updatedAt ? `<small>Updated: ${item.updatedAt}</small>` : ""}
           <div class="decision-actions">
