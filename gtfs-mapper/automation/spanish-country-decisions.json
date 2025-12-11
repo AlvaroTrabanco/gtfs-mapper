@@ -7,6 +7,10 @@
     "ouibus::AOV": {
       "decision": "approve",
       "updatedAt": "2025-12-11T09:02:31.902Z"
+    },
+    "ouibus::ALC": {
+      "decision": "approve",
+      "updatedAt": "2025-12-11T09:24:08.782Z"
     }
   }
 }
