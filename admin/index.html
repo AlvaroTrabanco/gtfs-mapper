@@ -351,15 +351,19 @@
     const overridesSection = document.querySelector('[data-section="overrides"]');
     const submitBtn = document.querySelector('button[type="submit"].primary');
     const targetRadios = document.querySelectorAll('input[name="ovTarget"]');
+    const previewBtnEl = document.getElementById("previewBtn");
+    const commitInputEl = document.getElementById("msg");
 
     if (useAuto) {
+      // Visually dim overrides block
       if (overridesSection) overridesSection.style.opacity = "0.45";
 
+      // Disable manual overrides controls
       if (fileInput) fileInput.disabled = true;
       targetRadios.forEach(r => (r.disabled = true));
       if (submitBtn) submitBtn.disabled = true;
-      if (previewBtn) previewBtn.disabled = true;
-      if (commitInput) commitInput.disabled = true;
+      if (previewBtnEl) previewBtnEl.disabled = true;
+      if (commitInputEl) commitInputEl.disabled = true;
 
       uiMessage(
         `This feed is set to <code>Use automatic Spanish border overrides</code>.<br>` +
@@ -367,19 +371,21 @@
         "#6b7280"
       );
     } else {
+      // Re-enable when auto is off
       if (overridesSection) overridesSection.style.opacity = "";
-
       if (fileInput) fileInput.disabled = false;
       targetRadios.forEach(r => (r.disabled = false));
       if (submitBtn) submitBtn.disabled = false;
-      if (previewBtn) previewBtn.disabled = false;
-      if (commitInput) commitInput.disabled = false;
+      if (previewBtnEl) previewBtnEl.disabled = false;
+      if (commitInputEl) commitInputEl.disabled = false;
 
+      // Clear only our auto-message
       if (result.innerHTML.includes("Use automatic Spanish border overrides")) {
         result.innerHTML = "";
       }
     }
 
+    // Keep the hint text in sync as well
     updateAutoOverridesUI(useAuto);
   }
 
