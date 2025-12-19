@@ -17,6 +17,7 @@
     "slug": "alsa",
     "url": "",
     "localPath": "feeds/alsa.zip",
-    "sourceType": "file"
+    "sourceType": "file",
+    "autoSpanishOverrides": false
   }
 ]
