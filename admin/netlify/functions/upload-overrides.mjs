@@ -27,14 +27,39 @@ export const handler = async (event) => {
       commitMessage
     } = body;
 
-    if (!key || key !== process.env.ADMIN_KEY) return { statusCode: 401, body: "Unauthorized" };
+    if (!key || key !== process.env.ADMIN_KEY) {
+      return { statusCode: 401, body: "Unauthorized" };
+    }
 
     const owner  = process.env.REPO_OWNER;
     const repo   = process.env.REPO_NAME;
     const branch = process.env.TARGET_BRANCH || "main";
     const token  = process.env.GH_TOKEN;
+
+    // ---- Debug / health-check op -----------------------------------------
+    if (op === "ping") {
+      // Do NOT touch GitHub here; just tell us if the function is alive
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          ok: true,
+          message: "upload-overrides function is running",
+          owner,
+          repo,
+          branch,
+          hasToken: !!token,
+        }),
+      };
+    }
+
     if (!owner || !repo || !token) {
-      return { statusCode: 500, body: "Server misconfigured: missing REPO_OWNER, REPO_NAME or GH_TOKEN" };
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          ok: false,
+          error: "Server misconfigured: missing REPO_OWNER, REPO_NAME or GH_TOKEN",
+        }),
+      };
     }
 
     const octokit = new Octokit({ auth: token });
