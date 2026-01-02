@@ -4778,6 +4778,12 @@ const rulesFingerprint = useMemo(() => {
             />
           </label>
 
+          {/* NEW: plain checkbox, no JS wiring */}
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" />
+            Use server-side GTFS import
+          </label>
+
           
 
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
