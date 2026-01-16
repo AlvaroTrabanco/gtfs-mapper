@@ -674,6 +674,16 @@ export default function PatternMatrix({
     return byTrip;
   }, [stopTimes, tripIdSet]);
 
+    // Fast lookup: (trip_id, stop_id) -> StopTime
+  const stopTimeByTripStop = useMemo(() => {
+    const m = new Map<string, StopTime>();
+    for (const st of stopTimes) {
+      if (!tripIdSet.has(st.trip_id)) continue;
+      m.set(keyTS(st.trip_id, st.stop_id), st);
+    }
+    return m;
+  }, [stopTimes, tripIdSet]);
+
   // First departure time per trip (for sorting)
   const firstDep = useMemo(() => {
     const m = new Map<string, string>();
@@ -972,31 +982,62 @@ useEffect(() => {
           borderColor: "#df007d",
           borderWidth: 2,
           borderStyle: "solid",
-          borderRadius: 12
+          borderRadius: 12,
         }}
       >
-        <div className="card-body" style={{ overflow: "auto", position: "relative" }}>
-          <div style={{ marginBottom: 6, display: "flex", alignItems: "baseline", gap: 8 }}>
+        <div className="card-body" style={{ position: "relative" }}>
+          {/* Header: title + pattern name + count */}
+          <div
+            style={{
+              marginBottom: 6,
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8,
+            }}
+          >
             <h3 style={{ margin: 0 }}>Summary of selected route</h3>
-            <div style={{ fontSize: 12, opacity: .75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div
+              style={{
+                fontSize: 12,
+                opacity: 0.75,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
               {groupTitle}
             </div>
-            <div style={{ marginLeft: "auto", fontSize: 12, opacity: .7 }}>
+            <div
+              style={{
+                marginLeft: "auto",
+                fontSize: 12,
+                opacity: 0.7,
+              }}
+            >
               Trips in this pattern: {g.trips.length}
             </div>
           </div>
 
-                    {/* Group actions: select all, delete, shift */}
-          <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "8px 0" }}>
+          {/* Group actions: select all, delete, shift – stays fixed while table scrolls */}
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              margin: "8px 0",
+            }}
+          >
             <SelectAllCheckbox
               label="Select all trips in this pattern"
               totalCount={g.trips.length}
-              selectedCount={g.trips.filter(t => selectedTripIds.has(t.trip_id)).length}
+              selectedCount={g.trips.filter((t) =>
+                selectedTripIds.has(t.trip_id)
+              ).length}
               onToggle={(checked) => {
-                setSelectedTripIds(prev => {
+                setSelectedTripIds((prev) => {
                   const next = new Set(prev);
-                  if (checked) g.trips.forEach(t => next.add(t.trip_id));
-                  else g.trips.forEach(t => next.delete(t.trip_id));
+                  if (checked) g.trips.forEach((t) => next.add(t.trip_id));
+                  else g.trips.forEach((t) => next.delete(t.trip_id));
                   return next;
                 });
               }}
@@ -1011,7 +1052,8 @@ useEffect(() => {
                 border: "1px solid #ddd",
                 background: "#fff",
                 borderRadius: 6,
-                cursor: undoStack.length === 0 ? "not-allowed" : "pointer"
+                cursor:
+                  undoStack.length === 0 ? "not-allowed" : "pointer",
               }}
               title="Undo last shift/delete in Summary"
             >
@@ -1027,7 +1069,8 @@ useEffect(() => {
                 border: "1px solid #ddd",
                 background: "#fff",
                 borderRadius: 6,
-                cursor: redoStack.length === 0 ? "not-allowed" : "pointer"
+                cursor:
+                  redoStack.length === 0 ? "not-allowed" : "pointer",
               }}
               title="Redo last shift/delete in Summary (or Cmd/Ctrl+Shift+Z)"
             >
@@ -1037,24 +1080,55 @@ useEffect(() => {
             <button
               onClick={deleteSelectedTrips}
               disabled={selectedTripIds.size === 0}
-              style={{ fontSize: 12, padding: "6px 10px", border: "1px solid #ddd", background: "#fff", borderRadius: 6, cursor: selectedTripIds.size ? "pointer" : "not-allowed" }}
+              style={{
+                fontSize: 12,
+                padding: "6px 10px",
+                border: "1px solid #ddd",
+                background: "#fff",
+                borderRadius: 6,
+                cursor:
+                  selectedTripIds.size ? "pointer" : "not-allowed",
+              }}
               title="Delete selected trips (columns)"
             >
               Delete selected trips
             </button>
 
-            <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "#555" }}>Shift service</span>
+            <div
+              style={{
+                display: "inline-flex",
+                gap: 6,
+                alignItems: "center",
+              }}
+            >
+              <span style={{ fontSize: 12, color: "#555" }}>
+                Shift service
+              </span>
               <input
                 value={shiftInput}
                 onChange={(e) => setShiftInput(e.target.value)}
                 placeholder="+01:00 / -00:30 / 1.30 / 1.15"
-                style={{ width: 100, fontVariantNumeric: "tabular-nums" }}
+                style={{
+                  width: 100,
+                  fontVariantNumeric: "tabular-nums",
+                }}
               />
               <button
                 onClick={shiftSelectedTrips}
-                disabled={selectedTripIds.size === 0 || !shiftInput.trim()}
-                style={{ fontSize: 12, padding: "6px 10px", border: "1px solid #ddd", background: "#fff", borderRadius: 6, cursor: (selectedTripIds.size && shiftInput.trim()) ? "pointer" : "not-allowed" }}
+                disabled={
+                  selectedTripIds.size === 0 || !shiftInput.trim()
+                }
+                style={{
+                  fontSize: 12,
+                  padding: "6px 10px",
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  borderRadius: 6,
+                  cursor:
+                    selectedTripIds.size && shiftInput.trim()
+                      ? "pointer"
+                      : "not-allowed",
+                }}
                 title="Apply shift to selected trips"
               >
                 OK
@@ -1062,263 +1136,408 @@ useEffect(() => {
             </div>
           </div>
 
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
-            <thead>
-              <tr>
-                <th style={{ width: 260, textAlign: "left", padding: 8, borderBottom: "1px solid #eee" }}>Stop</th>
-                {g.trips.map((t) => (
-                  <th key={t.trip_id} style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee", minWidth: 180 }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={isTripSelected(t.trip_id)}
-                        onChange={(e) => toggleTripSelected(t.trip_id, e.target.checked)}
-                        title="Select this trip"
-                        style={{ marginTop: 2 }}
-                      />
-                      {headerFor(t)}
-                    </div>
+          {/* Scrollable table only */}
+          <div style={{ overflow: "auto" }}>
+            <table
+              style={{
+                borderCollapse: "collapse",
+                width: "100%",
+              }}
+            >
+              <thead>
+                <tr>
+                  <th
+                    style={{
+                      width: 260,
+                      textAlign: "left",
+                      padding: 8,
+                      borderBottom: "1px solid #eee",
+                    }}
+                  >
+                    Stop
                   </th>
-                ))}
-              </tr>
-            </thead>
+                  {g.trips.map((t) => (
+                    <th
+                      key={t.trip_id}
+                      style={{
+                        textAlign: "left",
+                        padding: 8,
+                        borderBottom: "1px solid #eee",
+                        minWidth: 180,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 8,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isTripSelected(t.trip_id)}
+                          onChange={(e) =>
+                            toggleTripSelected(
+                              t.trip_id,
+                              e.target.checked
+                            )
+                          }
+                          title="Select this trip"
+                          style={{ marginTop: 2 }}
+                        />
+                        {headerFor(t)}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
 
-            <tbody>
-              {orderedStopIds.map((sid) => {
-                const s = stopById.get(sid);
-                const rowKey = `${gi}::${sid}`;
-                const isBulkOpen = openBulkKey === rowKey;
+              {/* ... keep your <tbody> exactly as it is ... */}
+              <tbody>
+                {orderedStopIds.map((sid) => {
+                  const s = stopById.get(sid);
+                  const rowKey = `${gi}::${sid}`;
+                  const isBulkOpen = openBulkKey === rowKey;
 
+                  // Build UNION pools across group trips that include this stop
+                  const tripsWithThisStop = g.trips.filter(
+                    (t) => (groupTripStops.get(t.trip_id) ?? []).includes(sid)
+                  );
 
-                
-                // Build UNION pools across group trips that include this stop
-                const tripsWithThisStop = g.trips.filter(t => (groupTripStops.get(t.trip_id) ?? []).includes(sid));
-                
-                // safe unions even if empty
-                const upstreamUnion = new Set<string>();
-                const downstreamUnion = new Set<string>();
+                  // safe unions even if empty
+                  const upstreamUnion = new Set<string>();
+                  const downstreamUnion = new Set<string>();
 
-                for (const t of tripsWithThisStop) {
-                  const seq = tripStops.get(t.trip_id) ?? [];
-                  const idx = seq.indexOf(sid);
-                  const up = idx > 0 ? seq.slice(0, idx) : [];
-                  const down = idx >= 0 ? seq.slice(idx + 1) : [];
-                  up.forEach(id => upstreamUnion.add(id));
-                  down.forEach(id => downstreamUnion.add(id));
-                }
+                  for (const t of tripsWithThisStop) {
+                    const seq = tripStops.get(t.trip_id) ?? [];
+                    const idx = seq.indexOf(sid);
+                    const up = idx > 0 ? seq.slice(0, idx) : [];
+                    const down = idx >= 0 ? seq.slice(idx + 1) : [];
+                    up.forEach((id) => upstreamUnion.add(id));
+                    down.forEach((id) => downstreamUnion.add(id));
+                  }
 
-                const upstreamPool = Array.from(upstreamUnion).map(id => stopById.get(id)).filter((x): x is Stop => Boolean(x));
-                const downstreamPool = Array.from(downstreamUnion).map(id => stopById.get(id)).filter((x): x is Stop => Boolean(x));
-                const rowPreset = summarizeRowRuleForStop({
-                  tripsWithStop: tripsWithThisStop,
-                  stopId: sid,
-                  groupTripStops,
-                  restrictions,
-                });
-                return (
-                  <tr key={sid}>
-                    <td style={{ padding: 8, borderBottom: "1px solid #f2f2f2", position: "sticky", left: 0, background: "#fff", zIndex: 2 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
-                        <span>{s?.stop_name ?? sid}</span>
+                  const upstreamPool = Array.from(upstreamUnion)
+                    .map((id) => stopById.get(id))
+                    .filter((x): x is Stop => Boolean(x));
+                  const downstreamPool = Array.from(downstreamUnion)
+                    .map((id) => stopById.get(id))
+                    .filter((x): x is Stop => Boolean(x));
 
-                        {/* 3A) Row badge: put this EXACTLY here, between the name and the gear */}
-                        {rowPreset && (
-                          <span
-                            title={
-                              rowPreset.mode === "custom"
-                                ? "Custom OD rules applied in this section"
-                                : rowPreset.mode === "pickup"
-                                ? "Pickup-only in this section"
+                  const rowPreset = summarizeRowRuleForStop({
+                    tripsWithStop: tripsWithThisStop,
+                    stopId: sid,
+                    groupTripStops,
+                    restrictions,
+                  });
+
+                  return (
+                    <tr key={sid}>
+                      {/* LEFT STICKY CELL: stop name + row badge + row bulk editor */}
+                      <td
+                        style={{
+                          padding: 8,
+                          borderBottom: "1px solid #f2f2f2",
+                          position: "sticky",
+                          left: 0,
+                          background: "#fff",
+                          zIndex: 2,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            position: "relative",
+                          }}
+                        >
+                          <span>{s?.stop_name ?? sid}</span>
+
+                          {/* Row badge */}
+                          {rowPreset && (
+                            <span
+                              title={
+                                rowPreset.mode === "custom"
+                                  ? "Custom OD rules applied in this section"
+                                  : rowPreset.mode === "pickup"
+                                  ? "Pickup-only in this section"
+                                  : rowPreset.mode === "dropoff"
+                                  ? "Dropoff-only in this section"
+                                  : "Stop"
+                              }
+                              style={{
+                                fontSize: 10,
+                                padding: "1px 6px",
+                                border: "1px solid #ddd",
+                                borderRadius: 10,
+                                background: "#f7f7f8",
+                              }}
+                            >
+                              {rowPreset.mode === "pickup"
+                                ? "⭱ pickup"
                                 : rowPreset.mode === "dropoff"
-                                ? "Dropoff-only in this section"
-                                : "Stop"
-                            }
+                                ? "⭳ dropoff"
+                                : rowPreset.mode === "custom"
+                                ? "⇄ custom"
+                                : "⤵︎ stop"}
+                            </span>
+                          )}
+
+                          {/* Row bulk editor gear */}
+                          <button
+                            title="Edit rule for this row (trips in this section)"
+                            onClick={(e) => {
+                              setBulkAnchorEl(e.currentTarget as HTMLElement);
+                              const rowKeyInner = `${gi}::${sid}`;
+                              setOpenBulkKey((cur: string | null) =>
+                                cur === rowKeyInner ? null : rowKeyInner
+                              );
+
+                              // preload bulk editor from rowPreset (imported overrides)
+                              if (!rowPreset || rowPreset.mode === "normal") {
+                                setBulkMode("normal");
+                                setBulkDropFrom([]);
+                                setBulkPickTo([]);
+                              } else if (
+                                rowPreset.mode === "pickup" ||
+                                rowPreset.mode === "dropoff"
+                              ) {
+                                setBulkMode(rowPreset.mode);
+                                setBulkDropFrom([]);
+                                setBulkPickTo([]);
+                              } else {
+                                setBulkMode("custom");
+                                setBulkDropFrom(rowPreset.dropoffOnlyFrom ?? []);
+                                setBulkPickTo(rowPreset.pickupOnlyTo ?? []);
+                              }
+                            }}
                             style={{
-                              fontSize: 10,
-                              padding: "1px 6px",
                               border: "1px solid #ddd",
-                              borderRadius: 10,
-                              background: "#f7f7f8",
+                              background: "#fff",
+                              borderRadius: 6,
+                              padding: "2px 6px",
+                              fontSize: 11,
+                              cursor: "pointer",
                             }}
                           >
-                            {rowPreset.mode === "pickup"
-                              ? "⭱ pickup"
-                              : rowPreset.mode === "dropoff"
-                              ? "⭳ dropoff"
-                              : rowPreset.mode === "custom"
-                              ? "⇄ custom"
-                              : "⤵︎ stop"}
-                          </span>
-                        )}
+                            ⚙︎
+                          </button>
 
-                        <button
-                          title="Edit rule for this row (trips in this section)"
-                          onClick={(e) => {
-                            setBulkAnchorEl(e.currentTarget as HTMLElement);
-                            const rowKeyInner = `${gi}::${sid}`;
-                            setOpenBulkKey((cur: string | null) => (cur === rowKeyInner ? null : rowKeyInner));
+                          <PortalPopover
+                            open={isBulkOpen}
+                            anchorEl={isBulkOpen ? bulkAnchorEl : null}
+                            onClose={() => {
+                              setOpenBulkKey(null);
+                              setBulkAnchorEl(null);
+                            }}
+                          >
+                            <div>
+                              <StopBulkRuleEditor
+                                open={true}
+                                onClose={() => {
+                                  setOpenBulkKey(null);
+                                  setBulkAnchorEl(null);
+                                }}
+                                mode={bulkMode}
+                                setMode={setBulkMode}
+                                upstreamPool={upstreamPool ?? []}
+                                downstreamPool={downstreamPool ?? []}
+                                bulkDropFrom={bulkDropFrom}
+                                bulkPickTo={bulkPickTo}
+                                setBulkDropFrom={setBulkDropFrom}
+                                setBulkPickTo={setBulkPickTo}
+                                onApply={() => applyBulkToStop(sid)}
+                              />
+                            </div>
+                          </PortalPopover>
+                        </div>
+                      </td>
 
-                            /* Preload the bulk editor FROM rowPreset (imported overrides)
-                              instead of stopDefaults */
-                            if (!rowPreset || rowPreset.mode === "normal") {
-                              setBulkMode("normal");
-                              setBulkDropFrom([]);
-                              setBulkPickTo([]);
-                            } else if (rowPreset.mode === "pickup" || rowPreset.mode === "dropoff") {
-                              setBulkMode(rowPreset.mode);
-                              setBulkDropFrom([]);
-                              setBulkPickTo([]);
-                            } else {
-                              setBulkMode("custom");
-                              setBulkDropFrom(rowPreset.dropoffOnlyFrom ?? []);
-                              setBulkPickTo(rowPreset.pickupOnlyTo ?? []);
-                            }
-                          }}
-                          style={{ border: "1px solid #ddd", background: "#fff", borderRadius: 6, padding: "2px 6px", fontSize: 11, cursor: "pointer" }}
-                        >
-                          ⚙︎
-                        </button>
+                      {/* ONE CELL PER TRIP */}
+                      {g.trips.map((t) => {
+                        // ✅ Use the fast lookup map here
+                        const st =
+                          stopTimeByTripStop.get(keyTS(t.trip_id, sid)) ?? null;
+                        const base = hhmmOnly(
+                          st?.departure_time || st?.arrival_time || ""
+                        );
+                        const ui = hhmmOnly(getUiTime(t.trip_id, sid, base));
+                        const k = keyTS(t.trip_id, sid);
+                        const rule = restrictions[k]?.mode ?? "normal";
+                        const cellKey = `${gi}::${t.trip_id}::${sid}`;
+                        const isOpen = openCellKey === cellKey;
 
-                        <PortalPopover
-                          open={isBulkOpen}
-                          anchorEl={isBulkOpen ? bulkAnchorEl : null}
-                          onClose={() => {
-                            setOpenBulkKey(null);
-                            setBulkAnchorEl(null);
-                          }}
-                        >
-                          <div>
-                            <StopBulkRuleEditor
-                              open={true}
-                              onClose={() => {
-                                setOpenBulkKey(null);
-                                setBulkAnchorEl(null);
+                        // upstream/downstream lists for this trip (within group)
+                        const seqs = groupTripStops.get(t.trip_id) ?? [];
+                        const idx = seqs.indexOf(sid);
+                        const upstreamIds = idx > 0 ? seqs.slice(0, idx) : [];
+                        const downstreamIds = idx >= 0 ? seqs.slice(idx + 1) : [];
+                        const upstreamStops = upstreamIds
+                          .map((x) => stopById.get(x)!)
+                          .filter(Boolean);
+                        const downstreamStops = downstreamIds
+                          .map((x) => stopById.get(x)!)
+                          .filter(Boolean);
+
+                        const dropFrom = restrictions[k]?.dropoffOnlyFrom ?? [];
+                        const pickTo = restrictions[k]?.pickupOnlyTo ?? [];
+
+                        return (
+                          <td
+                            key={t.trip_id}
+                            style={{
+                              padding: 8,
+                              borderBottom: "1px solid #f2f2f2",
+                              position: "relative",
+                              background: selectedTripIds.has(t.trip_id)
+                                ? "#fafcff"
+                                : "#fff",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
                               }}
-                              mode={bulkMode}
-                              setMode={setBulkMode}
-                              upstreamPool={upstreamPool ?? []}
-                              downstreamPool={downstreamPool ?? []}
-                              bulkDropFrom={bulkDropFrom}
-                              bulkPickTo={bulkPickTo}
-                              setBulkDropFrom={setBulkDropFrom}
-                              setBulkPickTo={setBulkPickTo}
-                              onApply={() => applyBulkToStop(sid)}
-                            />
-                          </div>
-                        </PortalPopover>
-                      </div>
-                    </td>
-
-                    {g.trips.map((t) => {
-                      const st = (stopTimes.find(x => x.trip_id === t.trip_id && x.stop_id === sid) ?? null);
-                      const base = hhmmOnly(st?.departure_time || st?.arrival_time || "");
-                      const ui = hhmmOnly(getUiTime(t.trip_id, sid, base));
-                      const k = keyTS(t.trip_id, sid);
-                      const rule = restrictions[k]?.mode ?? "normal";
-                      const cellKey = `${gi}::${t.trip_id}::${sid}`;
-                      const isOpen = openCellKey === cellKey;
-
-                      // upstream/downstream lists for this trip (within group)
-                      const seqs = groupTripStops.get(t.trip_id) ?? [];
-                      const idx = seqs.indexOf(sid);
-                      const upstreamIds = idx > 0 ? seqs.slice(0, idx) : [];
-                      const downstreamIds = idx >= 0 ? seqs.slice(idx + 1) : [];
-                      const upstreamStops = upstreamIds.map((x) => stopById.get(x)!).filter(Boolean);
-                      const downstreamStops = downstreamIds.map((x) => stopById.get(x)!).filter(Boolean);
-
-                      const dropFrom = restrictions[k]?.dropoffOnlyFrom ?? [];
-                      const pickTo = restrictions[k]?.pickupOnlyTo ?? [];
-
-                      return (
-                        <td
-                          key={t.trip_id}
-                          style={{
-                            padding: 8,
-                            borderBottom: "1px solid #f2f2f2",
-                            position: "relative",
-                            background: selectedTripIds.has(t.trip_id) ? "#fafcff" : "#fff"
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <input
-                              value={ui}
-                              placeholder="--:--"
-                              maxLength={5}
-                              onChange={(e) => {
-                                const val = e.target.value.replace(/[^\d:]/g, "");
-                                if (onEditTime) onEditTime(t.trip_id, sid, val);
-                                else setLocalTimes((prev) => ({ ...prev, [k]: val }));
-                              }}
-                              style={{ width: 64, fontVariantNumeric: "tabular-nums" }}
-                            />
-                            <button
-                              title="Stop rule"
-                              onClick={(e) => {
-                                setCellAnchorEl(e.currentTarget as HTMLElement);
-                                const cellKeyInner = `${gi}::${t.trip_id}::${sid}`;
-                                setOpenCellKey((cur: string | null) => (cur === cellKeyInner ? null : cellKeyInner));
-                              }}
-                              style={{ border: "1px solid #ddd", background: "#fff", borderRadius: 6, padding: "2px 6px", fontSize: 11, cursor: "pointer" }}>
-                              {rule === "pickup" ? "⭱" : rule === "dropoff" ? "⭳" : rule === "custom" ? "⇄" : "⤵︎"}
-                            </button>
-
-                            <PortalPopover
-                              open={isOpen}
-                              anchorEl={isOpen ? cellAnchorEl : null}
-                              onClose={() => { setOpenCellKey(null); setCellAnchorEl(null); }}
                             >
-                              <div>
-                                <StopRuleEditor
-                                  open={true}
-                                  onClose={() => { setOpenCellKey(null); setCellAnchorEl(null); }}
-                                  mode={rule}
-                                  setMode={(m) => {
-                                    setRestrictions(prev => {
-                                      const next = { ...prev };
-                                      if (m === "normal") delete next[k];
-                                      else if (m === "pickup") next[k] = { mode: "pickup" };
-                                      else if (m === "dropoff") next[k] = { mode: "dropoff" };
-                                      else {
-                                        const existing = next[k] ?? { mode: "custom", dropoffOnlyFrom: [], pickupOnlyTo: [] };
-                                        next[k] = {
-                                          mode: "custom",
-                                          dropoffOnlyFrom: existing.dropoffOnlyFrom ?? [],
-                                          pickupOnlyTo: existing.pickupOnlyTo ?? []
-                                        };
-                                      }
-                                      return next;
-                                    });
-                                  }}
-                                  upstreamStops={upstreamStops}
-                                  downstreamStops={downstreamStops}
-                                  dropoffOnlyFrom={dropFrom}
-                                  pickupOnlyTo={pickTo}
-                                  onChangeDropoffOnlyFrom={(ids) =>
-                                    setRestrictions(prev => ({
+                              <input
+                                value={ui}
+                                placeholder="--:--"
+                                maxLength={5}
+                                onChange={(e) => {
+                                  const val = e.target.value.replace(/[^\d:]/g, "");
+                                  if (onEditTime) onEditTime(t.trip_id, sid, val);
+                                  else
+                                    setLocalTimes((prev) => ({
                                       ...prev,
-                                      [k]: { mode: "custom", dropoffOnlyFrom: ids, pickupOnlyTo: prev[k]?.pickupOnlyTo ?? [] }
-                                    }))
-                                  }
-                                  onChangePickupOnlyTo={(ids) =>
-                                    setRestrictions(prev => ({
-                                      ...prev,
-                                      [k]: { mode: "custom", dropoffOnlyFrom: prev[k]?.dropoffOnlyFrom ?? [], pickupOnlyTo: ids }
-                                    }))
-                                  }
-                                />
-                              </div>
-                            </PortalPopover>
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                                      [k]: val,
+                                    }));
+                                }}
+                                style={{
+                                  width: 64,
+                                  fontVariantNumeric: "tabular-nums",
+                                }}
+                              />
+                              <button
+                                title="Stop rule"
+                                onClick={(e) => {
+                                  setCellAnchorEl(e.currentTarget as HTMLElement);
+                                  const cellKeyInner = `${gi}::${t.trip_id}::${sid}`;
+                                  setOpenCellKey((cur: string | null) =>
+                                    cur === cellKeyInner ? null : cellKeyInner
+                                  );
+                                }}
+                                style={{
+                                  border: "1px solid #ddd",
+                                  background: "#fff",
+                                  borderRadius: 6,
+                                  padding: "2px 6px",
+                                  fontSize: 11,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {rule === "pickup"
+                                  ? "⭱"
+                                  : rule === "dropoff"
+                                  ? "⭳"
+                                  : rule === "custom"
+                                  ? "⇄"
+                                  : "⤵︎"}
+                              </button>
 
-          <div style={{ paddingTop: 8, fontSize: 12, color: "#666", display: "flex", gap: 12 }}>
+                              <PortalPopover
+                                open={isOpen}
+                                anchorEl={isOpen ? cellAnchorEl : null}
+                                onClose={() => {
+                                  setOpenCellKey(null);
+                                  setCellAnchorEl(null);
+                                }}
+                              >
+                                <div>
+                                  <StopRuleEditor
+                                    open={true}
+                                    onClose={() => {
+                                      setOpenCellKey(null);
+                                      setCellAnchorEl(null);
+                                    }}
+                                    mode={rule}
+                                    setMode={(m) => {
+                                      setRestrictions((prev) => {
+                                        const next = { ...prev };
+                                        if (m === "normal") delete next[k];
+                                        else if (m === "pickup")
+                                          next[k] = { mode: "pickup" };
+                                        else if (m === "dropoff")
+                                          next[k] = { mode: "dropoff" };
+                                        else {
+                                          const existing =
+                                            next[k] ?? {
+                                              mode: "custom",
+                                              dropoffOnlyFrom: [],
+                                              pickupOnlyTo: [],
+                                            };
+                                          next[k] = {
+                                            mode: "custom",
+                                            dropoffOnlyFrom:
+                                              existing.dropoffOnlyFrom ?? [],
+                                            pickupOnlyTo:
+                                              existing.pickupOnlyTo ?? [],
+                                          };
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                    upstreamStops={upstreamStops}
+                                    downstreamStops={downstreamStops}
+                                    dropoffOnlyFrom={dropFrom}
+                                    pickupOnlyTo={pickTo}
+                                    onChangeDropoffOnlyFrom={(ids) =>
+                                      setRestrictions((prev) => ({
+                                        ...prev,
+                                        [k]: {
+                                          mode: "custom",
+                                          dropoffOnlyFrom: ids,
+                                          pickupOnlyTo:
+                                            prev[k]?.pickupOnlyTo ?? [],
+                                        },
+                                      }))
+                                    }
+                                    onChangePickupOnlyTo={(ids) =>
+                                      setRestrictions((prev) => ({
+                                        ...prev,
+                                        [k]: {
+                                          mode: "custom",
+                                          dropoffOnlyFrom:
+                                            prev[k]?.dropoffOnlyFrom ?? [],
+                                          pickupOnlyTo: ids,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              </PortalPopover>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            style={{
+              paddingTop: 8,
+              fontSize: 12,
+              color: "#666",
+              display: "flex",
+              gap: 12,
+            }}
+          >
             <span>⤵︎ Stop</span>
             <span>⭱ Pickup-only</span>
             <span>⭳ Dropoff-only</span>
