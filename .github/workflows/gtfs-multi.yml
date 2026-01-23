@@ -147,11 +147,23 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_SPANISH; do
+          while IFS=$'\t' read -r SLUG URL COL3 COL4; do
             [ -z "${SLUG:-}" ] && continue
+
+            LOCAL_PATH=""
+            AUTO_SPANISH=""
+
+            if [ -n "${COL4:-}" ]; then
+              # 4-column format: slug, url, localPath, autoFlag
+              LOCAL_PATH="${COL3}"
+              AUTO_SPANISH="${COL4}"
+            else
+              # 3-column format: slug, url, autoFlag (no localPath)
+              AUTO_SPANISH="${COL3}"
+            fi
+
             echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}'"
 
-            # Decide if this feed should use automatic Spanish overrides (from Admin flag)
             AUTO_SPANISH_OVERRIDES_ENV=""
             if [ "${AUTO_SPANISH:-}" = "1" ]; then
               AUTO_SPANISH_OVERRIDES_ENV="true"
