@@ -73,26 +73,31 @@ jobs:
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
-          node -e '
+                    node -e '
             const fs = require("fs");
             const raw = JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));
             const list = Array.isArray(raw) ? raw : (raw.feeds || []);
 
             const norm = list.map(x => {
               if (typeof x === "string") {
-                return { slug: x, url: "", localPath: "" };
+                return { slug: x, url: "", localPath: "", autoSpanishOverrides: false };
               }
               if (!x || typeof x !== "object") return null;
               return {
                 slug: x.slug,
                 url: x.url || "",
-                localPath: x.localPath || ""
+                localPath: x.localPath || "",
+                autoSpanishOverrides: !!x.autoSpanishOverrides
               };
             }).filter(x => x && x.slug);
 
             for (const it of norm) {
-              const cols = [it.slug, it.url, it.localPath]
-                .map(v => String(v ?? "").replace(/\t/g, " "));
+              const cols = [
+                it.slug,
+                it.url,
+                it.localPath,
+                it.autoSpanishOverrides ? "1" : ""
+              ].map(v => String(v ?? "").replace(/\t/g, " "));
               console.log(cols.join("\t"));
             }
           ' > feeds.tsv
@@ -142,9 +147,17 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL LOCAL_PATH; do
+          while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_SPANISH; do
             [ -z "${SLUG:-}" ] && continue
             echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}'"
+
+            # Decide if this feed should use automatic Spanish overrides (from Admin flag)
+            AUTO_SPANISH_OVERRIDES_ENV=""
+            if [ "${AUTO_SPANISH:-}" = "1" ]; then
+              AUTO_SPANISH_OVERRIDES_ENV="true"
+            fi
+            echo "AUTO_SPANISH_OVERRIDES for ${SLUG}: ${AUTO_SPANISH_OVERRIDES_ENV:-false}"
+
             mkdir -p "site/${SLUG}"
 
             # Decide effective source for this feed:
@@ -215,6 +228,8 @@ jobs:
 
             run_builder() {
               if [ -n "${OVR_FILE}" ]; then
+                AUTO_SPANISH_OVERRIDES="${AUTO_SPANISH_OVERRIDES_ENV}" \
+                SPANISH_DECISIONS="automation/spanish-country-decisions.json" \
                 FEED_SLUG="${SLUG}" \
                 FEED_URL="${EFFECTIVE_URL}" \
                 FEED_LOCAL_PATH="${EFFECTIVE_LOCAL}" \
@@ -224,6 +239,8 @@ jobs:
                 OVERRIDES="${OVR_FILE}" \
                 node automation/rebuild-gtfs.js
               else
+                AUTO_SPANISH_OVERRIDES="${AUTO_SPANISH_OVERRIDES_ENV}" \
+                SPANISH_DECISIONS="automation/spanish-country-decisions.json" \
                 FEED_SLUG="${SLUG}" \
                 FEED_URL="${EFFECTIVE_URL}" \
                 FEED_LOCAL_PATH="${EFFECTIVE_LOCAL}" \
