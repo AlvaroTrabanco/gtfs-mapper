@@ -27,7 +27,29 @@ const OVERRIDES_PATH = process.env.OVERRIDES        || "automation/overrides.jso
 const OVERRIDES_URL  = process.env.OVERRIDES_URL    || "";
 const isHttpUrl = (u) => /^https?:\/\//i.test(u || "");
 
+// When true, we ignore generic overrides and instead use Spanish decisions
+const AUTO_SPANISH_OVERRIDES =
+  /^(1|true|yes)$/i.test(process.env.AUTO_SPANISH_OVERRIDES || "");
+
+// Location of the Spanish auto decisions JSON
+const SPANISH_DECISIONS_PATH =
+  process.env.SPANISH_DECISIONS || "automation/spanish-country-decisions.json";
+
 /* -------------------------- overrides auto-discovery ---------------------- */
+// Minimal timezone → country mapping, mirroring the Python script
+const TZ_TO_COUNTRY = {
+  "Europe/Madrid": "ES",
+  "Atlantic/Canary": "ES",
+  "Europe/Paris": "FR",
+  "Europe/Lisbon": "PT",
+};
+
+function tzToCountry(tz) {
+  if (!tz) return "UNKNOWN";
+  const key = String(tz).trim();
+  return TZ_TO_COUNTRY[key] || "UNKNOWN";
+}
+
 
 // Auto-discovery candidates when OVERRIDES_URL is empty and explicit path is missing
 const OVERRIDE_CANDIDATES = (slug) => [
@@ -45,6 +67,33 @@ async function fileExists(p) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function loadSpanishDecisionsForSlug(slug) {
+  if (!AUTO_SPANISH_OVERRIDES) {
+    return { raw: {}, source: "" };
+  }
+
+  if (!(await fileExists(SPANISH_DECISIONS_PATH))) {
+    console.log(`[spanish] decisions file not found at ${SPANISH_DECISIONS_PATH}`);
+    return { raw: {}, source: "" };
+  }
+
+  try {
+    const text = await fs.readFile(SPANISH_DECISIONS_PATH, "utf8");
+    const json = JSON.parse(text || "{}");
+    console.log(
+      `[spanish] loaded decisions JSON for slug '${slug}' from ${SPANISH_DECISIONS_PATH}`
+    );
+    // We keep the whole JSON; later code will read json.decisions["slug::stop_id"]
+    return { raw: json, source: SPANISH_DECISIONS_PATH };
+  } catch (err) {
+    console.error(
+      "[spanish] Failed to read/parse decisions:",
+      err?.message || err
+    );
+    return { raw: {}, source: SPANISH_DECISIONS_PATH };
   }
 }
 
@@ -225,6 +274,86 @@ function importOverridesTolerant(raw, stop_times) {
   }
 
   return out;
+}
+
+// ---------------------- Spanish auto rules builder ------------------------ //
+function buildSpanishAutoRestrictions({ slug, stops, stopTimes, spanishDecisions }) {
+  // decisions JSON shape we expect:
+  // { decisions: { "<slug>::<stop_id>": { newCountry: "ES" | "FR" | "PT" | ... }, ... } }
+  const decisionsBlock =
+    spanishDecisions && typeof spanishDecisions === "object"
+      ? spanishDecisions.decisions || {}
+      : {};
+
+  // 1) Stop → country from timezone
+  const stopCountry = new Map();
+  for (const s of stops || []) {
+    const id = String(s.stop_id ?? "").trim();
+    if (!id) continue;
+    const tz = s.stop_timezone ?? s.stop_tz;
+    const base = tzToCountry(tz);
+    stopCountry.set(id, base);
+  }
+
+  // 2) Apply explicit decisions (override timezone country)
+  for (const [fullKey, val] of Object.entries(decisionsBlock)) {
+    const [slugPrefix, stopId] = String(fullKey).split("::");
+    if (slugPrefix !== slug) continue;
+    if (!stopId) continue;
+    const newCountry = (val && val.newCountry) || (val && val.country);
+    if (!newCountry) continue;
+    stopCountry.set(stopId, newCountry);
+  }
+
+  const isSpanish = new Set();
+  for (const [sid, country] of stopCountry.entries()) {
+    if (country === "ES") isSpanish.add(sid);
+  }
+
+  // 3) Group stop_times by trip (ordered)
+  const byTrip = new Map();
+  for (const st of stopTimes || []) {
+    const tid = String(st.trip_id ?? "").trim();
+    const sid = String(st.stop_id ?? "").trim();
+    if (!tid || !sid) continue;
+    if (!byTrip.has(tid)) byTrip.set(tid, []);
+    byTrip.get(tid).push(st);
+  }
+  for (const arr of byTrip.values()) {
+    arr.sort((a, b) => Number(a.stop_sequence) - Number(b.stop_sequence));
+  }
+
+  const restrictions = {};
+
+  for (const [tripId, arr] of byTrip.entries()) {
+    const seq = arr.map((st) => String(st.stop_id));
+
+    // Only bother if the trip actually crosses the Spanish border
+    const hasNonES = seq.some((sid) => {
+      const c = stopCountry.get(sid) || "UNKNOWN";
+      return c !== "ES";
+    });
+    if (!hasNonES) {
+      // Pure domestic Spanish trip → leave untouched for now
+      continue;
+    }
+
+    // For every Spanish stop on a cross-border trip, mark as `custom`.
+    // The OD compiler will turn these into the "border" behaviour:
+    //  - can drop off when coming from abroad
+    //  - can pick up when going abroad
+    seq.forEach((sid) => {
+      if (!isSpanish.has(sid)) return;
+      const key = `${tripId}::${sid}`;
+      restrictions[key] = {
+        mode: "custom",
+        // dropoffOnlyFrom / pickupOnlyTo are optional and mainly for admin debug,
+        // so we omit them here – the compiler only cares about `mode`.
+      };
+    });
+  }
+
+  return restrictions;
 }
 
 /* ------------------------- OD compiler (unchanged logic) ------------------ */
@@ -415,50 +544,85 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const stopTimes = tables.stop_times ? parseCsv(tables.stop_times) : [];
     const shapes    = tables.shapes     ? parseCsv(tables.shapes)     : [];
 
-    trips.forEach(t => { t.trip_headsign ??= ""; t.shape_id ??= ""; t.direction_id ??= ""; });
-
-    const { text: overridesText, source: effectiveOverridesSource } = await loadOverridesText();
+        trips.forEach(t => { t.trip_headsign ??= ""; t.shape_id ??= ""; t.direction_id ??= ""; });
 
     let overridesRaw = {};
-    try {
-      const j = JSON.parse(overridesText || "{}");
+    let spanishDecisions = null;
+    let effectiveOverridesSource = "";
 
-      const unwrap = (root) => {
-        if (!root || typeof root !== "object") return {};
+    if (AUTO_SPANISH_OVERRIDES) {
+      // Spanish auto mode: ignore overrides-*.json and instead build rules
+      // from timezone + spanish-country-decisions.json
+      const { raw, source } = await loadSpanishDecisionsForSlug(SLUG);
+      spanishDecisions = raw || {};
+      effectiveOverridesSource = source || "";
+      console.log("[overrides] AUTO_SPANISH_OVERRIDES enabled — building rules from Spanish decisions");
+    } else {
+      // Default behaviour: generic overrides resolution (unchanged)
+      const { text: overridesText, source } = await loadOverridesText();
+      effectiveOverridesSource = source;
 
-        // 1) Direct rules/restrictions or array (same as mapper)
-        if (Array.isArray(root.rules) || Array.isArray(root.restrictions) || Array.isArray(root)) {
+      try {
+        const j = JSON.parse(overridesText || "{}");
+
+        const unwrap = (root) => {
+          if (!root || typeof root !== "object") return {};
+
+          // 1) Direct rules/restrictions or array (same as mapper)
+          if (
+            Array.isArray(root.rules) ||
+            Array.isArray(root.restrictions) ||
+            Array.isArray(root)
+          ) {
+            return root;
+          }
+
+          // 2) { overrides: { [slug]: {...} } }
+          if (root.overrides && typeof root.overrides === "object") {
+            if (root.overrides[SLUG]) return root.overrides[SLUG];
+            const keys = Object.keys(root.overrides);
+            if (keys.length === 1) return root.overrides[keys[0]];
+          }
+
+          // 3) { feeds: { [slug]: {...} } } (alternative naming)
+          if (root.feeds && typeof root.feeds === "object") {
+            if (root.feeds[SLUG]) return root.feeds[SLUG];
+            const keys = Object.keys(root.feeds);
+            if (keys.length === 1) return root.feeds[keys[0]];
+          }
+
+          // Fallback: treat as already-unwrapped body
           return root;
-        }
+        };
 
-        // 2) { overrides: { [slug]: {...} } }
-        if (root.overrides && typeof root.overrides === "object") {
-          if (root.overrides[SLUG]) return root.overrides[SLUG];
-          const keys = Object.keys(root.overrides);
-          if (keys.length === 1) return root.overrides[keys[0]];
-        }
-
-        // 3) { feeds: { [slug]: {...} } } (alternative naming)
-        if (root.feeds && typeof root.feeds === "object") {
-          if (root.feeds[SLUG]) return root.feeds[SLUG];
-          const keys = Object.keys(root.feeds);
-          if (keys.length === 1) return root.feeds[keys[0]];
-        }
-
-        // Fallback: treat as already-unwrapped body
-        return root;
-      };
-
-      overridesRaw = unwrap(j);
-    } catch (err) {
-      console.error("[overrides] Failed to parse JSON:", err?.message || err);
-      overridesRaw = {};
+        overridesRaw = unwrap(j);
+      } catch (err) {
+        console.error("[overrides] Failed to parse JSON:", err?.message || err);
+        overridesRaw = {};
+      }
     }
 
     console.log("[overrides] source =", effectiveOverridesSource || "(none)");
-    console.log("[overrides] slug =", SLUG, "| top keys =", Object.keys(overridesRaw || {}).slice(0,5));
+    if (!AUTO_SPANISH_OVERRIDES) {
+      console.log(
+        "[overrides] slug =",
+        SLUG,
+        "| top keys =",
+        Object.keys(overridesRaw || {}).slice(0, 5)
+      );
+    }
 
-    const restrictions = importOverridesTolerant(overridesRaw, stopTimes);
+    let restrictions = {};
+    if (AUTO_SPANISH_OVERRIDES) {
+      restrictions = buildSpanishAutoRestrictions({
+        slug: SLUG,
+        stops,
+        stopTimes,
+        spanishDecisions,
+      });
+    } else {
+      restrictions = importOverridesTolerant(overridesRaw, stopTimes);
+    }
 
     const entries = Object.entries(restrictions);
     METRICS.overrides.total = entries.length;
