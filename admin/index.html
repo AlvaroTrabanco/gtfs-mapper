@@ -115,15 +115,30 @@
       <label for="feedSlug">Feed slug</label>
       <input type="text" id="feedSlug" placeholder="e.g. flixbus-de" />
 
-      <!-- Automatic Spanish overrides toggle -->
+      <!-- Automatic border overrides toggle (multi-country) -->
       <label style="display:flex; gap:8px; align-items:center; margin-top:8px;">
         <input type="checkbox" id="autoSpanishOverrides" />
-        <span>Use automatic Spanish border overrides</span>
+        <span>Use automatic overrides by country</span>
       </label>
       <p class="muted">
-        If enabled, the weekly Action will ignore the manual overrides file for this feed
-        and rely on auto-generated Spanish pickup/dropoff rules instead.
+        If enabled, the weekly Action can auto-generate pickup/dropoff rules for the selected
+        countries below (based on timezone + border KML). Manual overrides will be ignored
+        while this is enabled.
       </p>
+
+      <!-- Per-feed automatic border config -->
+      <div id="autoBorderCountriesRow" style="margin-top:8px; display:none;">
+        <label>Countries for automatic overrides</label>
+        <select id="autoBorderCountriesSelect" multiple size="6"
+                style="width:100%; max-width:100%;">
+        </select>
+        <p class="muted">
+          Hold Ctrl/Cmd to select multiple countries. These are the borders where automatic
+          pickup/dropoff rules will be applied for this feed.
+        </p>
+
+        <div id="selectedCountriesContainer" style="margin-top:8px;"></div>
+      </div>
 
       <fieldset>
         <legend>Source</legend>
@@ -162,7 +177,7 @@
 
     <label>Overrides JSON (for the selected feed)</label>
     <p class="muted">
-      Only used when <strong>Use automatic Spanish border overrides</strong> is disabled.
+      Only used when <strong>Use automatic overrides by country</strong> is disabled.
     </p>
     <p id="autoOverridesHint" class="muted" style="display:none; margin-top:4px;"></p>
     <input type="file" id="file" accept="application/json" />
@@ -180,7 +195,7 @@
   <!-- Spanish border alerts box -->
   <div class="card" id="alertsCard" style="margin-top:16px; display:none;">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <strong>Spanish border alerts</strong>
+      <strong>Automatic border alerts</strong>
       <p class="muted">Mismatched decisions are saved automatically.</p>
       <span id="alertsBadge" class="badge" style="display:none;"></span>
     </div>
@@ -223,6 +238,10 @@
   const feedUrlInput = document.getElementById("feedUrl");
   const feedLocalPathInput = document.getElementById("feedLocalPath");
   const autoSpanishOverridesInput = document.getElementById("autoSpanishOverrides");
+  
+  const autoBorderCountriesRow = document.getElementById("autoBorderCountriesRow");
+  const autoBorderCountriesSelect = document.getElementById("autoBorderCountriesSelect");
+  const selectedCountriesContainer = document.getElementById("selectedCountriesContainer");
 
   // Alerts elements
   const alertsCard = document.getElementById("alertsCard");
@@ -309,6 +328,52 @@
     AX: "Åland Islands"
   };
 
+    // ---- Timezone options (shared, independent of country) ------------------
+
+  const TIMEZONE_OPTIONS = [
+    "Europe/Madrid",
+    "Atlantic/Canary",
+    "Europe/Lisbon",
+    "Atlantic/Madeira",
+    "Atlantic/Azores",
+    "Europe/London",
+    "Europe/Dublin",
+    "Europe/Paris",
+    "Europe/Brussels",
+    "Europe/Amsterdam",
+    "Europe/Berlin",
+    "Europe/Rome",
+    "Europe/Zurich",
+    "Europe/Vienna",
+    "Europe/Prague",
+    "Europe/Warsaw",
+    "Europe/Budapest",
+    "Europe/Copenhagen",
+    "Europe/Oslo",
+    "Europe/Stockholm",
+    "Europe/Helsinki",
+    "Europe/Tallinn",
+    "Europe/Riga",
+    "Europe/Vilnius",
+    "Europe/Athens",
+    "Europe/Sofia",
+    "Europe/Bucharest",
+    "Europe/Belgrade",
+    "Europe/Zagreb",
+    "Europe/Ljubljana",
+    "Europe/Skopje",
+    "Europe/Sarajevo",
+    "Europe/Tirane",
+    "Europe/Podgorica",
+    "Europe/Chisinau",
+    "Europe/Kiev",
+    "Europe/Simferopol",
+    "Europe/Minsk",
+    "Europe/Andorra",
+    "Europe/Monaco",
+    "Europe/San_Marino",
+    "Europe/Vatican"
+  ];
   // ---- Helpers: country normalisation/labels/options ----------------------
 
   function normalizeCountryCode(code) {
@@ -402,7 +467,7 @@
       if (disabled) {
         autoOverridesHint.style.display = "block";
         autoOverridesHint.innerHTML =
-          "Automatic Spanish border overrides are enabled for this feed. " +
+          "Automatic border overrides by country are enabled for this feed. " +
           "The nightly GitHub Action will generate and apply pickup/dropoff rules. " +
           "To upload manual overrides instead, uncheck the toggle above.";
       } else {
@@ -411,6 +476,171 @@
       }
     }
   }
+
+    // ---- Automatic border UI helpers ---------------------------------------
+
+  function populateCountryMultiSelect() {
+    if (!autoBorderCountriesSelect) return;
+    const entries = Object.entries(COUNTRY_LABELS).sort((a, b) =>
+      a[1].localeCompare(b[1], undefined, { sensitivity: "base" })
+    );
+    autoBorderCountriesSelect.innerHTML = entries
+      .map(([code, name]) => `<option value="${code}">${name}</option>`)
+      .join("");
+  }
+
+  function getSelectedCountriesFromUI() {
+    if (!autoBorderCountriesSelect) return [];
+    return Array.from(autoBorderCountriesSelect.selectedOptions)
+      .map(o => normalizeCountryCode(o.value))
+      .filter(Boolean);
+  }
+
+  function buildTimezoneOptionsHtml() {
+    return TIMEZONE_OPTIONS
+      .map(tz => `<option value="${tz}">${tz}</option>`)
+      .join("");
+  }
+
+  function attachKmlUploadHandler(container, countryCode) {
+    const input = container.querySelector('input[data-role="kml-upload"]');
+    const statusEl = container.querySelector('[data-role="kml-status"]');
+    if (!input) return;
+
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const key = document.getElementById("key").value.trim();
+      if (!key) {
+        alert("Enter the Admin key before uploading KML.");
+        input.value = "";
+        return;
+      }
+      try {
+        const text = await file.text();
+        const path = `gtfs-mapper/automation/borders-${countryCode}.kml`;
+        await callFn({
+          key,
+          op: "writeFile",
+          path,
+          content: text,
+          commitMessage: `chore: update border KML for ${countryCode}`
+        });
+        if (statusEl) {
+          statusEl.textContent = `Uploaded as ${path}`;
+        }
+      } catch (err) {
+        alert("Failed to upload KML: " + ((err && err.message) || err));
+        if (statusEl) statusEl.textContent = "Upload failed";
+      } finally {
+        input.value = "";
+      }
+    });
+  }
+
+  function syncSelectedCountriesConfig(autoBorderOverrides) {
+    if (!selectedCountriesContainer || !autoBorderCountriesSelect) return;
+
+    const selectedCodes = new Set(getSelectedCountriesFromUI());
+    const tzByCountry =
+      autoBorderOverrides && autoBorderOverrides.timezonesByCountry
+        ? autoBorderOverrides.timezonesByCountry
+        : {};
+
+    // Remove blocks for deselected countries
+    selectedCountriesContainer
+      .querySelectorAll(".border-country-config")
+      .forEach(div => {
+        const code = normalizeCountryCode(div.getAttribute("data-country"));
+        if (!selectedCodes.has(code)) {
+          div.remove();
+        }
+      });
+
+    const tzOptionsHtml = buildTimezoneOptionsHtml();
+
+    // Add blocks for newly selected countries
+    selectedCodes.forEach(code => {
+      const existing = selectedCountriesContainer.querySelector(
+        `.border-country-config[data-country="${code}"]`
+      );
+      if (existing) return;
+
+      const name = formatCountryLabel(code) || code;
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "border-country-config";
+      wrapper.setAttribute("data-country", code);
+      wrapper.style.borderTop = "1px solid #e5e7eb";
+      wrapper.style.paddingTop = "8px";
+      wrapper.style.marginTop = "8px";
+      wrapper.innerHTML = `
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+          <strong>${name}</strong>
+          <span class="muted">(${code})</span>
+        </div>
+
+        <label style="margin-top:4px;">Timezones</label>
+        <select multiple size="4"
+                data-role="tz-select"
+                data-country="${code}"
+                style="width:100%; max-width:100%;">
+          ${tzOptionsHtml}
+        </select>
+        <p class="muted">Select all timezones that should be treated as this country's border timezones.</p>
+
+        <label style="margin-top:4px;">Border KML</label>
+        <input type="file" accept=".kml"
+               data-role="kml-upload"
+               data-country="${code}" />
+        <p class="muted" data-role="kml-status" data-country="${code}">
+          Uploading a file here writes <code>borders-${code}.kml</code> into <code>gtfs-mapper/automation/</code>.
+        </p>
+      `;
+      selectedCountriesContainer.appendChild(wrapper);
+
+      // Preselect previously saved timezones for this country (if any)
+      const tzSelect = wrapper.querySelector('select[data-role="tz-select"]');
+      const chosen = Array.isArray(tzByCountry[code]) ? tzByCountry[code] : [];
+      if (tzSelect && chosen.length) {
+        Array.from(tzSelect.options).forEach(opt => {
+          opt.selected = chosen.includes(opt.value);
+        });
+      }
+
+      attachKmlUploadHandler(wrapper, code);
+    });
+
+    if (autoBorderCountriesRow) {
+      autoBorderCountriesRow.style.display =
+        autoSpanishOverridesInput && autoSpanishOverridesInput.checked
+          ? "block"
+          : "none";
+    }
+  }
+
+  function collectTimezonesByCountryFromUI(countries) {
+    const result = {};
+    if (!selectedCountriesContainer) return result;
+    countries.forEach(code => {
+      const select = selectedCountriesContainer.querySelector(
+        `select[data-role="tz-select"][data-country="${code}"]`
+      );
+      if (!select) return;
+      const tzs = Array.from(select.selectedOptions).map(o => o.value).filter(Boolean);
+      result[code] = tzs;
+    });
+    return result;
+  }
+
+  // When the list of countries changes, rebuild the per-country config blocks
+  if (autoBorderCountriesSelect) {
+    autoBorderCountriesSelect.addEventListener("change", () => {
+      syncSelectedCountriesConfig(null);
+    });
+  }
+
+
 
   function updateOverridesUI() {
     const useAuto = !!autoSpanishOverridesInput?.checked;
@@ -429,8 +659,8 @@
       if (commitInputEl) commitInputEl.disabled = true;
 
       uiMessage(
-        `This feed is set to <code>Use automatic Spanish border overrides</code>.<br>` +
-        `Manual overrides upload is disabled; the weekly GitHub Action will generate rules from your Spanish timezone decisions.`,
+        `This feed is set to <code>Use automatic overrides by country</code>.<br>` +
+        `Manual overrides upload is disabled; the weekly GitHub Action will generate rules from your border decisions.`,
         "#6b7280"
       );
     } else {
@@ -442,9 +672,14 @@
       if (previewBtn) previewBtn.disabled = false;
       if (commitInputEl) commitInputEl.disabled = false;
 
-      if (result.innerHTML.includes("Use automatic Spanish border overrides")) {
+      if (result.innerHTML.includes("Use automatic overrides by country")) {
         result.innerHTML = "";
       }
+    }
+
+    // Show/hide the country config row when auto overrides are toggled
+    if (autoBorderCountriesRow) {
+      autoBorderCountriesRow.style.display = useAuto ? "block" : "none";
     }
 
     updateAutoOverridesUI(useAuto);
@@ -489,17 +724,57 @@
 
   function normalizeFeed(x, slugFromKey) {
     if (typeof x === "string") {
-      return { slug: x, url: "", localPath: "" };
+      return {
+        slug: x,
+        url: "",
+        localPath: "",
+        sourceType: "url",
+        autoSpanishOverrides: false,
+        autoBorderOverrides: {
+          enabled: false,
+          countries: [],
+          timezonesByCountry: {}
+        }
+      };
     }
     if (!x || typeof x !== "object") return null;
     const slug = x.slug || slugFromKey;
     if (!slug) return null;
+
+    const autoSpanish = !!x.autoSpanishOverrides;
+
+    let autoBorderOverrides = { enabled: false, countries: [], timezonesByCountry: {} };
+    if (x.autoBorderOverrides && typeof x.autoBorderOverrides === "object") {
+      const raw = x.autoBorderOverrides;
+      const countries = Array.isArray(raw.countries)
+        ? raw.countries.map(normalizeCountryCode).filter(Boolean)
+        : [];
+      const tzByCountry =
+        raw.timezonesByCountry && typeof raw.timezonesByCountry === "object"
+          ? raw.timezonesByCountry
+          : {};
+      autoBorderOverrides = {
+        enabled: !!raw.enabled,
+        countries,
+        timezonesByCountry: tzByCountry
+      };
+    }
+
+    // Backwards compat: feeds with only autoSpanishOverrides=true get ES by default.
+    if (!autoBorderOverrides.enabled && autoSpanish) {
+      autoBorderOverrides.enabled = true;
+      if (!autoBorderOverrides.countries.length) {
+        autoBorderOverrides.countries = ["ES"];
+      }
+    }
+
     return {
       slug,
       url: x.url || "",
       localPath: x.localPath || "",
       sourceType: x.sourceType || (x.localPath ? "file" : "url"),
-      autoSpanishOverrides: !!x.autoSpanishOverrides,
+      autoSpanishOverrides: autoSpanish,
+      autoBorderOverrides
     };
   }
 
@@ -665,7 +940,7 @@
 
     alertsCard.style.display = "block";
     alertsSummary.textContent =
-      `${count} Spanish stop${count === 1 ? "" : "s"} need manual timezone / country review.`;
+      `${count} stop${count === 1 ? "" : "s"} need manual timezone / country review for border overrides.`;
 
     alertsBadge.textContent = `${count} issue${count === 1 ? "" : "s"}`;
     alertsBadge.style.display = "inline-block";
@@ -763,7 +1038,7 @@
             alertsSummary.textContent = "";
           } else {
             alertsSummary.textContent =
-              `${remaining} Spanish stop${remaining === 1 ? "" : "s"} need manual timezone / country review.`;
+              `${remaining} stop${remaining === 1 ? "" : "s"} need manual timezone / country review for border overrides.`;
             alertsBadge.textContent = `${remaining} issue${remaining === 1 ? "" : "s"}`;
           }
 
@@ -898,11 +1173,42 @@
     );
     if (radio) radio.checked = true;
 
-    const autoFlag = !!(found && found.autoSpanishOverrides);
-    if (autoSpanishOverridesInput) autoSpanishOverridesInput.checked = autoFlag;
+    // Automatic overrides state (multi-country)
+    const autoBorderOverrides = found?.autoBorderOverrides || {
+      enabled: false,
+      countries: [],
+      timezonesByCountry: {}
+    };
+    const autoFlag =
+      autoBorderOverrides.enabled || !!(found && found.autoSpanishOverrides);
+
+    if (autoSpanishOverridesInput) {
+      autoSpanishOverridesInput.checked = autoFlag;
+    }
+
+    // Populate country multi-select with all labels
+    if (autoBorderCountriesSelect) {
+      // Ensure options exist
+      if (!autoBorderCountriesSelect.options.length) {
+        populateCountryMultiSelect();
+      }
+      // Select the countries for this feed
+      const countriesSet = new Set(
+        Array.isArray(autoBorderOverrides.countries)
+          ? autoBorderOverrides.countries.map(normalizeCountryCode).filter(Boolean)
+          : []
+      );
+      Array.from(autoBorderCountriesSelect.options).forEach(opt => {
+        const code = normalizeCountryCode(opt.value);
+        opt.selected = countriesSet.has(code);
+      });
+    }
+
+    // Sync per-country timezone + KML blocks
+    syncSelectedCountriesConfig(autoBorderOverrides);
 
     originalSlug = slug || "";
-    originalAutoSpanish = autoFlag;
+    originalAutoSpanish = !!(found && found.autoSpanishOverrides);
     saveNow();
 
     updateOverridesUI();
@@ -979,8 +1285,8 @@
       const useAutoSpanish = !!autoSpanishOverridesInput?.checked;
       if (useAutoSpanish) {
         uiMessage(
-          `This feed is set to <code>Use automatic Spanish border overrides</code>.<br>` +
-          `You don't need to upload an overrides JSON. The weekly Action will generate and use it automatically.`,
+          `This feed is set to <code>Use automatic overrides by country</code>.<br>` +
+          `You don't need to upload an overrides JSON. The weekly Action will generate and use it automatically from your border decisions.`,
           "#6b7280"
         );
         return;
@@ -1040,6 +1346,8 @@
       const sourceType = (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url";
       const autoSpanishOverrides = !!autoSpanishOverridesInput?.checked;
 
+
+
       if (!key) throw new Error("ADMIN_KEY is required.");
       if (!newSlug) throw new Error("Feed slug is required.");
 
@@ -1079,12 +1387,26 @@
         localPath = localPathRaw;
       }
 
+      const selectedCountries = autoSpanishOverrides
+        ? getSelectedCountriesFromUI()
+        : [];
+      const timezonesByCountry = autoSpanishOverrides
+        ? collectTimezonesByCountryFromUI(selectedCountries)
+        : {};
+
+      const autoBorderOverrides = {
+        enabled: autoSpanishOverrides && selectedCountries.length > 0,
+        countries: selectedCountries,
+        timezonesByCountry
+      };
+
       const newRecord = {
         slug: newSlug,
         url,
         localPath,
         sourceType,
         autoSpanishOverrides,
+        autoBorderOverrides
       };
 
       const idx = current.findIndex(x => (x?.slug||x) === newSlug);
@@ -1107,6 +1429,22 @@
       await loadFeeds();
       feedSelect.value = newSlug;
       onFeedChoiceChange();
+
+      // If automatic overrides are enabled, hint to review mismatches and scroll
+      if (autoSpanishOverrides && alertsCard && alertsCard.style.display !== "none") {
+        uiMessage(
+          `Saved ${newSlug}. Commit: <code>${payload.commit}</code><br>` +
+          `<button type="button" id="scrollToAlertsBtn" style="margin-top:6px; padding:4px 8px; font-size:12px;">` +
+          `Review border mismatch alerts for this feed</button>`,
+          "#065f46"
+        );
+        const scrollBtn = document.getElementById("scrollToAlertsBtn");
+        if (scrollBtn) {
+          scrollBtn.addEventListener("click", () => {
+            alertsCard.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        }
+      }
     } catch (err) {
       uiMessage(`<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`, "#b91c1c");
     }
@@ -1159,6 +1497,12 @@
         if (el) el.value = "";
       });
       if (autoSpanishOverridesInput) autoSpanishOverridesInput.checked = false;
+      if (autoBorderCountriesSelect) {
+        populateCountryMultiSelect();
+      }
+      if (selectedCountriesContainer) {
+        selectedCountriesContainer.innerHTML = "";
+      }
       updateOverridesUI();
     });
     updateOverridesUI();
