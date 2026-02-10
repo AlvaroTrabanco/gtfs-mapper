@@ -67,7 +67,7 @@ export const handler = async (event) => {
         // Workflow file name or id for "Build & Deploy GTFS Mapper"
     // e.g. .github/workflows/build-deploy-gtfs-mapper.yml
     const gtfsMapperWorkflowId =
-      process.env.GTFS_MAPPER_WORKFLOW || "build-deploy-gtfs-mapper.yml";
+      process.env.GTFS_MAPPER_WORKFLOW || "gtfs-multi.yml";
 
     async function getFile(pth) {
       const p = normPath(pth);
