@@ -15,7 +15,9 @@
         "ES": [
           "Europe/Madrid"
         ],
-        "CH": []
+        "CH": [
+          "Europe/Zurich"
+        ]
       }
     }
   },
