@@ -64,6 +64,11 @@ export const handler = async (event) => {
 
     const octokit = new Octokit({ auth: token });
 
+        // Workflow file name or id for "Build & Deploy GTFS Mapper"
+    // e.g. .github/workflows/build-deploy-gtfs-mapper.yml
+    const gtfsMapperWorkflowId =
+      process.env.GTFS_MAPPER_WORKFLOW || "build-deploy-gtfs-mapper.yml";
+
     async function getFile(pth) {
       const p = normPath(pth);
       const res = await octokit.repos.getContent({ owner, repo, path: p, ref: branch });
@@ -99,6 +104,39 @@ export const handler = async (event) => {
       if (!sha) return { ok: true, deleted: false, path: p };
       const { data } = await octokit.repos.deleteFile({ owner, repo, path: p, message: msg, branch, sha });
       return { ok: true, deleted: true, path: p, commit: data.commit?.sha };
+    }
+
+        // Trigger Build & Deploy GTFS Mapper GitHub Action
+    if (op === "triggerBuildGtfsMapper") {
+      try {
+        await octokit.actions.createWorkflowDispatch({
+          owner,
+          repo,
+          workflow_id: gtfsMapperWorkflowId,
+          ref: branch,
+          inputs: {
+            source: "gtfs-admin",
+          },
+        });
+
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            ok: true,
+            triggered: true,
+            workflow: gtfsMapperWorkflowId,
+            branch,
+          }),
+        };
+      } catch (e) {
+        return {
+          statusCode: e.status || 500,
+          body: JSON.stringify({
+            ok: false,
+            error: `Failed to trigger Build & Deploy GTFS Mapper: ${e.message}`,
+          }),
+        };
+      }
     }
 
     // --- API ops ---

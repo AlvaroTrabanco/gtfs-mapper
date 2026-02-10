@@ -790,6 +790,23 @@
     return payload;
   }
 
+    // Trigger Build & Deploy GTFS Mapper (backend op should dispatch the workflow)
+  async function triggerBuildAndDeploy() {
+    const key = document.getElementById("key").value.trim();
+    if (!key) return; // nothing to do
+
+    try {
+      await callFn({
+        key,
+        op: "triggerBuildGtfsMapper"   // implement this op in your Netlify function
+      });
+      // No uiMessage here so we don't overwrite the "Saved <slug>..." text
+    } catch (err) {
+      // Don't break the UI if build trigger isn't implemented yet
+      console.warn("Failed to trigger Build & Deploy GTFS Mapper:", err);
+    }
+  }
+
   // ---- Feeds parsing ----
   function parseFeedsJSON(txt) {
     let j;
@@ -1496,6 +1513,10 @@
       });
 
       uiMessage(`Saved ${newSlug}. Commit: <code>${payload.commit}</code>`, "#065f46");
+
+      // Also trigger Build & Deploy GTFS Mapper
+      triggerBuildAndDeploy();
+
       originalSlug = newSlug;
       originalAutoSpanish = autoSpanishOverrides;
       await loadFeeds();
