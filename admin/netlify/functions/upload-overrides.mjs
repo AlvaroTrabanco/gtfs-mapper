@@ -114,9 +114,6 @@ export const handler = async (event) => {
           repo,
           workflow_id: gtfsMapperWorkflowId,
           ref: branch,
-          inputs: {
-            source: "gtfs-admin",
-          },
         });
 
         return {
