@@ -73,7 +73,7 @@
     padding:6px 0;
   }
   #decisionsList .decision-row small {
-    display:block;
+    display:block; 
     color:#6b7280;
   }
   #decisionsList .decision-actions {
@@ -129,12 +129,14 @@
       <!-- Per-feed automatic border config -->
       <div id="autoBorderCountriesRow" style="margin-top:8px; display:none;">
         <label>Countries for automatic overrides</label>
-        <select id="autoBorderCountriesSelect" multiple size="6"
-                style="width:100%; max-width:100%;">
-        </select>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:4px;">
+          <select id="autoBorderCountriesSelect" size="5" style="min-width:200px; max-width:100%;">
+          </select>
+          <button type="button" id="addCountryBtn">Add country</button>
+        </div>
         <p class="muted">
-          Hold Ctrl/Cmd to select multiple countries. These are the borders where automatic
-          pickup/dropoff rules will be applied for this feed.
+          Choose a country and click <strong>Add country</strong>. Each selected country will appear
+          below with its own timezone and border KML configuration.
         </p>
 
         <div id="selectedCountriesContainer" style="margin-top:8px;"></div>
@@ -241,6 +243,7 @@
   
   const autoBorderCountriesRow = document.getElementById("autoBorderCountriesRow");
   const autoBorderCountriesSelect = document.getElementById("autoBorderCountriesSelect");
+  const addCountryBtn = document.getElementById("addCountryBtn");
   const selectedCountriesContainer = document.getElementById("selectedCountriesContainer");
 
   // Alerts elements
@@ -328,7 +331,7 @@
     AX: "Åland Islands"
   };
 
-    // ---- Timezone options (shared, independent of country) ------------------
+  // ---- Timezone options (shared, independent of country) ------------------
 
   const TIMEZONE_OPTIONS = [
     "Europe/Madrid",
@@ -374,6 +377,7 @@
     "Europe/San_Marino",
     "Europe/Vatican"
   ];
+
   // ---- Helpers: country normalisation/labels/options ----------------------
 
   function normalizeCountryCode(code) {
@@ -477,22 +481,26 @@
     }
   }
 
-    // ---- Automatic border UI helpers ---------------------------------------
+  // ---- Automatic border UI helpers ---------------------------------------
 
   function populateCountryMultiSelect() {
     if (!autoBorderCountriesSelect) return;
     const entries = Object.entries(COUNTRY_LABELS).sort((a, b) =>
       a[1].localeCompare(b[1], undefined, { sensitivity: "base" })
     );
-    autoBorderCountriesSelect.innerHTML = entries
-      .map(([code, name]) => `<option value="${code}">${name}</option>`)
-      .join("");
+    autoBorderCountriesSelect.innerHTML =
+      `<option value="">— Choose a country —</option>` +
+      entries
+        .map(([code, name]) => `<option value="${code}">${name}</option>`)
+        .join("");
   }
 
   function getSelectedCountriesFromUI() {
-    if (!autoBorderCountriesSelect) return [];
-    return Array.from(autoBorderCountriesSelect.selectedOptions)
-      .map(o => normalizeCountryCode(o.value))
+    if (!selectedCountriesContainer) return [];
+    return Array.from(
+      selectedCountriesContainer.querySelectorAll(".border-country-config")
+    )
+      .map(div => normalizeCountryCode(div.getAttribute("data-country")))
       .filter(Boolean);
   }
 
@@ -500,6 +508,36 @@
     return TIMEZONE_OPTIONS
       .map(tz => `<option value="${tz}">${tz}</option>`)
       .join("");
+  }
+
+  function updateCountrySummary(countryCode) {
+    if (!selectedCountriesContainer) return;
+    const card = selectedCountriesContainer.querySelector(
+      `.border-country-config[data-country="${countryCode}"]`
+    );
+    if (!card) return;
+
+    const tzSelect = card.querySelector('select[data-role="tz-select"]');
+    const statusEl = card.querySelector('[data-role="kml-status"]');
+    const summaryEl = card.querySelector('[data-role="tz-summary"]');
+    if (!summaryEl) return;
+
+    const selected = tzSelect
+      ? Array.from(tzSelect.selectedOptions).map(o => o.value)
+      : [];
+    const tzPart = selected.length
+      ? `Timezones: ${selected.join(", ")}`
+      : "Timezones: (none)";
+
+    let kmlPart = " • KML: not uploaded";
+    if (statusEl) {
+      const txt = statusEl.textContent || "";
+      if (txt.includes("Uploaded as")) {
+        kmlPart = " • KML: uploaded";
+      }
+    }
+
+    summaryEl.textContent = tzPart + kmlPart;
   }
 
   function attachKmlUploadHandler(container, countryCode) {
@@ -534,89 +572,135 @@
         if (statusEl) statusEl.textContent = "Upload failed";
       } finally {
         input.value = "";
+        updateCountrySummary(countryCode);
       }
     });
   }
 
-  function syncSelectedCountriesConfig(autoBorderOverrides) {
-    if (!selectedCountriesContainer || !autoBorderCountriesSelect) return;
+  function createCountryConfigCard(code) {
+    if (!code || !selectedCountriesContainer) return null;
+    const normalized = normalizeCountryCode(code);
+    if (!normalized) return null;
 
-    const selectedCodes = new Set(getSelectedCountriesFromUI());
+    let wrapper = selectedCountriesContainer.querySelector(
+      `.border-country-config[data-country="${normalized}"]`
+    );
+    if (wrapper) return wrapper;
+
+    const name = formatCountryLabel(normalized) || normalized;
+    const tzOptionsHtml = buildTimezoneOptionsHtml();
+
+    wrapper = document.createElement("div");
+    wrapper.className = "border-country-config";
+    wrapper.setAttribute("data-country", normalized);
+    wrapper.style.borderTop = "1px solid #e5e7eb";
+    wrapper.style.paddingTop = "8px";
+    wrapper.style.marginTop = "8px";
+    wrapper.innerHTML = `
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+        <div>
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <strong>${name}</strong>
+            <span class="muted">(${normalized})</span>
+          </div>
+          <div data-role="tz-summary" class="muted" style="margin-top:4px;">
+            Timezones: (none) • KML: not uploaded
+          </div>
+        </div>
+        <button type="button"
+                data-role="remove-country"
+                data-country="${normalized}"
+                style="font-size:11px; padding:4px 8px;">
+          Remove
+        </button>
+      </div>
+
+      <label style="margin-top:4px;">Timezones</label>
+      <select multiple size="4"
+              data-role="tz-select"
+              data-country="${normalized}"
+              style="width:100%; max-width:100%;">
+        ${tzOptionsHtml}
+      </select>
+      <p class="muted">Select all timezones that should be treated as this country's border timezones.</p>
+
+      <label style="margin-top:4px;">Border KML</label>
+      <input type="file" accept=".kml"
+             data-role="kml-upload"
+             data-country="${normalized}" />
+      <p class="muted" data-role="kml-status" data-country="${normalized}">
+        Uploading a file here writes <code>borders-${normalized}.kml</code> into <code>gtfs-mapper/automation/</code>.
+      </p>
+    `;
+    selectedCountriesContainer.appendChild(wrapper);
+
+    const tzSelect = wrapper.querySelector('select[data-role="tz-select"]');
+    if (tzSelect) {
+      tzSelect.addEventListener("change", () => updateCountrySummary(normalized));
+    }
+
+    const removeBtn = wrapper.querySelector('[data-role="remove-country"]');
+    if (removeBtn) {
+      removeBtn.addEventListener("click", () => {
+        wrapper.remove();
+      });
+    }
+
+    attachKmlUploadHandler(wrapper, normalized);
+    updateCountrySummary(normalized);
+
+    return wrapper;
+  }
+
+  function setCountryTimezones(code, tzList) {
+    if (!selectedCountriesContainer) return;
+    const normalized = normalizeCountryCode(code);
+    if (!normalized) return;
+
+    const card = selectedCountriesContainer.querySelector(
+      `.border-country-config[data-country="${normalized}"]`
+    );
+    if (!card) return;
+
+    const tzSelect = card.querySelector('select[data-role="tz-select"]');
+    if (!tzSelect) return;
+
+    const chosen = Array.isArray(tzList) ? tzList : [];
+    Array.from(tzSelect.options).forEach(opt => {
+      opt.selected = chosen.includes(opt.value);
+    });
+
+    updateCountrySummary(normalized);
+  }
+
+  function syncSelectedCountriesConfig(autoBorderOverrides) {
+    if (!selectedCountriesContainer) return;
+
+    const desiredSet = new Set(
+      autoBorderOverrides && Array.isArray(autoBorderOverrides.countries)
+        ? autoBorderOverrides.countries.map(normalizeCountryCode).filter(Boolean)
+        : []
+    );
     const tzByCountry =
       autoBorderOverrides && autoBorderOverrides.timezonesByCountry
         ? autoBorderOverrides.timezonesByCountry
         : {};
 
-    // Remove blocks for deselected countries
+    // Remove cards that are no longer desired
     selectedCountriesContainer
       .querySelectorAll(".border-country-config")
       .forEach(div => {
         const code = normalizeCountryCode(div.getAttribute("data-country"));
-        if (!selectedCodes.has(code)) {
+        if (code && !desiredSet.has(code)) {
           div.remove();
         }
       });
 
-    const tzOptionsHtml = buildTimezoneOptionsHtml();
-
-    // Add blocks for newly selected countries
-    selectedCodes.forEach(code => {
-      const existing = selectedCountriesContainer.querySelector(
-        `.border-country-config[data-country="${code}"]`
-      );
-      if (existing) return;
-
-      const name = formatCountryLabel(code) || code;
-
-      const wrapper = document.createElement("div");
-      wrapper.className = "border-country-config";
-      wrapper.setAttribute("data-country", code);
-      wrapper.style.borderTop = "1px solid #e5e7eb";
-      wrapper.style.paddingTop = "8px";
-      wrapper.style.marginTop = "8px";
-      wrapper.innerHTML = `
-        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-          <strong>${name}</strong>
-          <span class="muted">(${code})</span>
-        </div>
-
-        <label style="margin-top:4px;">Timezones</label>
-        <select multiple size="4"
-                data-role="tz-select"
-                data-country="${code}"
-                style="width:100%; max-width:100%;">
-          ${tzOptionsHtml}
-        </select>
-        <p class="muted">Select all timezones that should be treated as this country's border timezones.</p>
-
-        <label style="margin-top:4px;">Border KML</label>
-        <input type="file" accept=".kml"
-               data-role="kml-upload"
-               data-country="${code}" />
-        <p class="muted" data-role="kml-status" data-country="${code}">
-          Uploading a file here writes <code>borders-${code}.kml</code> into <code>gtfs-mapper/automation/</code>.
-        </p>
-      `;
-      selectedCountriesContainer.appendChild(wrapper);
-
-      // Preselect previously saved timezones for this country (if any)
-      const tzSelect = wrapper.querySelector('select[data-role="tz-select"]');
-      const chosen = Array.isArray(tzByCountry[code]) ? tzByCountry[code] : [];
-      if (tzSelect && chosen.length) {
-        Array.from(tzSelect.options).forEach(opt => {
-          opt.selected = chosen.includes(opt.value);
-        });
-      }
-
-      attachKmlUploadHandler(wrapper, code);
+    // Create/update cards for desired countries
+    desiredSet.forEach(code => {
+      createCountryConfigCard(code);
+      setCountryTimezones(code, tzByCountry[code] || []);
     });
-
-    if (autoBorderCountriesRow) {
-      autoBorderCountriesRow.style.display =
-        autoSpanishOverridesInput && autoSpanishOverridesInput.checked
-          ? "block"
-          : "none";
-    }
   }
 
   function collectTimezonesByCountryFromUI(countries) {
@@ -633,14 +717,21 @@
     return result;
   }
 
-  // When the list of countries changes, rebuild the per-country config blocks
-  if (autoBorderCountriesSelect) {
-    autoBorderCountriesSelect.addEventListener("change", () => {
-      syncSelectedCountriesConfig(null);
+  // Add-country button behaviour
+  if (addCountryBtn && autoBorderCountriesSelect) {
+    addCountryBtn.addEventListener("click", () => {
+      const code = normalizeCountryCode(autoBorderCountriesSelect.value);
+      if (!code) return;
+      createCountryConfigCard(code);
+    });
+
+    // Double-click a country in the list to add it
+    autoBorderCountriesSelect.addEventListener("dblclick", () => {
+      const code = normalizeCountryCode(autoBorderCountriesSelect.value);
+      if (!code) return;
+      createCountryConfigCard(code);
     });
   }
-
-
 
   function updateOverridesUI() {
     const useAuto = !!autoSpanishOverridesInput?.checked;
@@ -1051,8 +1142,7 @@
     });
   }
 
-
-    // ---- Decisions history renderer -----------------------------------------
+  // ---- Decisions history renderer -----------------------------------------
   async function renderSpanishDecisionsForSlug(slug) {
     if (!decisionsCard) return;
 
@@ -1103,7 +1193,6 @@
 
       let lineText;
       if (item.decision === "approve") {
-        // Show the actual approved country instead of a generic label
         lineText = labelCountry
           ? `Approved: ${labelCountry}`
           : "Approved (no country set)";
@@ -1113,7 +1202,6 @@
         lineText = item.decision;
       }
 
-      // Prefer stop_name as the main title, fall back to stop_id if missing
       const nameHeader = item.stopName || item.stopId || "(no name)";
 
       return `
@@ -1129,7 +1217,6 @@
       `;
     }).join("");
 
-    // Wire up "Revert decision" buttons
     decisionsList.querySelectorAll('button[data-action="revert"]').forEach(btn => {
       btn.addEventListener("click", async () => {
         const stopId = btn.getAttribute("data-stop-id") || "";
@@ -1186,25 +1273,12 @@
       autoSpanishOverridesInput.checked = autoFlag;
     }
 
-    // Populate country multi-select with all labels
-    if (autoBorderCountriesSelect) {
-      // Ensure options exist
-      if (!autoBorderCountriesSelect.options.length) {
-        populateCountryMultiSelect();
-      }
-      // Select the countries for this feed
-      const countriesSet = new Set(
-        Array.isArray(autoBorderOverrides.countries)
-          ? autoBorderOverrides.countries.map(normalizeCountryCode).filter(Boolean)
-          : []
-      );
-      Array.from(autoBorderCountriesSelect.options).forEach(opt => {
-        const code = normalizeCountryCode(opt.value);
-        opt.selected = countriesSet.has(code);
-      });
+    // Populate country select with all labels
+    if (autoBorderCountriesSelect && !autoBorderCountriesSelect.options.length) {
+      populateCountryMultiSelect();
     }
 
-    // Sync per-country timezone + KML blocks
+    // Sync per-country timezone + KML blocks from saved config
     syncSelectedCountriesConfig(autoBorderOverrides);
 
     originalSlug = slug || "";
@@ -1286,7 +1360,7 @@
       if (useAutoSpanish) {
         uiMessage(
           `This feed is set to <code>Use automatic overrides by country</code>.<br>` +
-          `You don't need to upload an overrides JSON. The weekly Action will generate and use it automatically from your border decisions.`,
+          `You don't need to upload an overrides JSON. The weekly GitHub Action will generate and use it automatically from your border decisions.`,
           "#6b7280"
         );
         return;
@@ -1345,8 +1419,6 @@
       const localPathRaw = feedLocalPathInput.value.trim();
       const sourceType = (document.querySelector('input[name="feedSourceType"]:checked')?.value) || "url";
       const autoSpanishOverrides = !!autoSpanishOverridesInput?.checked;
-
-
 
       if (!key) throw new Error("ADMIN_KEY is required.");
       if (!newSlug) throw new Error("Feed slug is required.");
@@ -1430,7 +1502,6 @@
       feedSelect.value = newSlug;
       onFeedChoiceChange();
 
-      // If automatic overrides are enabled, hint to review mismatches and scroll
       if (autoSpanishOverrides && alertsCard && alertsCard.style.display !== "none") {
         uiMessage(
           `Saved ${newSlug}. Commit: <code>${payload.commit}</code><br>` +
@@ -1505,6 +1576,9 @@
       }
       updateOverridesUI();
     });
+    if (autoBorderCountriesSelect) {
+      populateCountryMultiSelect();
+    }
     updateOverridesUI();
     await loadFeeds();
   });
