@@ -396,11 +396,13 @@
   function deriveProbableCountry(mismatch) {
     const tzCountry = normalizeCountryCode(mismatch.tz_country);
     const inSpain = !!mismatch.in_spain_polygon;
+    const inSwitzerland = !!mismatch.in_switzerland_polygon;
 
-    if (inSpain) {
-      return "ES";
-    }
-    if (tzCountry === "ES") return "ES";
+    // If the point falls inside one of our border polygons, prefer that.
+    if (inSpain) return "ES";
+    if (inSwitzerland) return "CH";
+
+    // Otherwise fall back to whatever the timezone-country detection said.
     return tzCountry;
   }
 
@@ -538,7 +540,7 @@
     let kmlPart = " • KML: not uploaded";
     if (statusEl) {
       const txt = statusEl.textContent || "";
-      if (txt.includes("Uploaded as")) {
+      if (txt.includes("Uploaded as") || txt.includes("Existing KML")) {
         kmlPart = " • KML: uploaded";
       }
     }
@@ -582,6 +584,43 @@
       }
     });
   }
+
+
+  async function refreshKmlStatusForCountry(countryCode) {
+    if (!selectedCountriesContainer) return;
+    const normalized = normalizeCountryCode(countryCode);
+    if (!normalized) return;
+
+    const statusEl = selectedCountriesContainer.querySelector(
+      `[data-role="kml-status"][data-country="${normalized}"]`
+    );
+    if (!statusEl) return;
+
+    const key = document.getElementById("key").value.trim();
+    if (!key) {
+      // We can't hit GitHub without a key; show a neutral hint.
+      statusEl.textContent =
+        `borders-${normalized}.kml (status unknown – enter ADMIN_KEY to check)`;
+      updateCountrySummary(normalized);
+      return;
+    }
+
+    try {
+      await callFn({
+        key,
+        op: "readFile",
+        path: `gtfs-mapper/automation/borders-${normalized}.kml`,
+      });
+      statusEl.textContent = `Existing KML: borders-${normalized}.kml`;
+    } catch (_err) {
+      statusEl.textContent =
+        `No KML uploaded yet. When you upload, it will be saved as ` +
+        `borders-${normalized}.kml in gtfs-mapper/automation/`;
+    }
+
+    updateCountrySummary(normalized);
+  }
+
 
   function createCountryConfigCard(code) {
     if (!code || !selectedCountriesContainer) return null;
@@ -635,7 +674,8 @@
              data-role="kml-upload"
              data-country="${normalized}" />
       <p class="muted" data-role="kml-status" data-country="${normalized}">
-        Uploading a file here writes <code>borders-${normalized}.kml</code> into <code>gtfs-mapper/automation/</code>.
+        No KML uploaded yet. When you upload, it will be saved as
+        <code>borders-${normalized}.kml</code> in <code>gtfs-mapper/automation/</code>.
       </p>
     `;
     selectedCountriesContainer.appendChild(wrapper);
@@ -654,6 +694,7 @@
 
     attachKmlUploadHandler(wrapper, normalized);
     updateCountrySummary(normalized);
+    refreshKmlStatusForCountry(normalized);
 
     return wrapper;
   }
@@ -706,6 +747,7 @@
     desiredSet.forEach(code => {
       createCountryConfigCard(code);
       setCountryTimezones(code, tzByCountry[code] || []);
+      refreshKmlStatusForCountry(code);
     });
   }
 
@@ -796,23 +838,6 @@
     return payload;
   }
 
-    // Trigger Build & Deploy GTFS Mapper (backend op should dispatch the workflow)
-  async function triggerBuildAndDeploy() {
-    const key = document.getElementById("key").value.trim();
-    if (!key) return; // nothing to do
-
-
-    try {
-      await callFn({
-        key,
-        op: "triggerBuildGtfsMapper"   // implement this op in your Netlify function
-      });
-      // No uiMessage here so we don't overwrite the "Saved <slug>..." text
-    } catch (err) {
-      // Don't break the UI if build trigger isn't implemented yet
-      console.warn("Failed to trigger Build & Deploy GTFS Mapper:", err);
-    }
-  }
 
   // ---- Feeds parsing ----
   function parseFeedsJSON(txt) {
@@ -1434,25 +1459,15 @@
     }
   });
 
-  async function triggerBuildAndDeploy() {
-    const key = document.getElementById("key").value.trim();
-    if (!key) {
-      throw new Error("ADMIN_KEY is required to trigger the GTFS Mapper build.");
-    }
 
-    const payload = await callFn({
-      key,
-      op: "triggerBuildGtfsMapper",
-    });
 
-    // Netlify function returns: { ok, triggered, workflow, branch }
-    return payload;
-  }
-
-  // ---- Save/Update feed ----
   // ---- Save/Update feed ----
   saveFeedBtn.addEventListener("click", async () => {
-      try {
+    const originalLabel = saveFeedBtn.textContent;
+    saveFeedBtn.disabled = true;
+    saveFeedBtn.textContent = "Saving…";
+
+    try {
         const key = document.getElementById("key").value.trim();
         const newSlug = feedSlugInput.value.trim();
         const urlRaw  = feedUrlInput.value.trim();
@@ -1549,24 +1564,9 @@
         // Build success message
         let msgHtml =
           `Saved <code>${newSlug}</code>. ` +
-          `Commit: <code>${payload.commit}</code>`;
-
-        // Try to trigger the GTFS Mapper workflow and report result
-        try {
-          const buildInfo = await triggerBuildAndDeploy();
-          if (buildInfo && buildInfo.ok && buildInfo.triggered) {
-            msgHtml +=
-              `<br>Triggered <code>${buildInfo.workflow || "gtfs-multi.yml"}</code>` +
-              ` on branch <code>${buildInfo.branch || "main"}</code>.`;
-          } else {
-            msgHtml +=
-              `<br><span class="muted">Warning: workflow trigger did not confirm success.</span>`;
-          }
-        } catch (e) {
-          msgHtml +=
-            `<br><span class="muted">Warning: failed to trigger Build &amp; Deploy GTFS Mapper – ` +
-            `${(e && e.message) || e}</span>`;
-        }
+          `Commit: <code>${payload.commit}</code>.` +
+          `<br>GitHub Actions workflow <code>Build &amp; Deploy GTFS Mapper</code>` +
+          ` will run automatically for this commit (push to <code>feeds.json</code>).`;
 
         // If automatic overrides are enabled, give a hint about alerts
         if (autoSpanishOverrides) {
@@ -1596,6 +1596,9 @@
         `<strong>Error:</strong><pre>${(err && err.message) || err}</pre>`,
         "#b91c1c"
       );
+    } finally {
+      saveFeedBtn.disabled = false;
+      saveFeedBtn.textContent = originalLabel;
     }
   });
   // ---- Delete feed ----
