@@ -494,6 +494,18 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     console.log("[source] effectiveUrl =", effectiveUrl || "(none)");
     console.log("[source] effectiveLocal =", effectiveLocal || "(none)");
 
+    // Debug: show whether Spanish auto overrides are enabled for this run
+    console.log(
+      "[spanish] AUTO_SPANISH_OVERRIDES =",
+      AUTO_SPANISH_OVERRIDES ? "true" : "false"
+    );
+    if (AUTO_SPANISH_OVERRIDES) {
+      console.log(
+        "[spanish] decisions file =",
+        SPANISH_DECISIONS_PATH
+      );
+    }
+
     if (effectiveUrl) {
       // Remote URL mode (only true http/https)
       console.log(`Downloading GTFS (${SLUG}) from URL:`, effectiveUrl);
@@ -743,6 +755,8 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       debug: {
         sampleOverrides,
         modifiedStopTimesSample: modifiedSamples,
+        spanishAutoEnabled: AUTO_SPANISH_OVERRIDES,
+        spanishDecisionsFile: AUTO_SPANISH_OVERRIDES ? SPANISH_DECISIONS_PATH : "",
       },
     };
 

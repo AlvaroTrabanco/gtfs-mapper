@@ -69,25 +69,41 @@ jobs:
           set -euo pipefail
           mkdir -p site
 
-          # Build TSV: slug \t url \t localPath  (supports [{slug,url,localPath}], {feeds:[...]}, ["slug"])
+          # Build TSV: slug \t url \t localPath \t autoFlag \t countriesCsv
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
-                    node -e '
+          node -e '
             const fs = require("fs");
             const raw = JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));
             const list = Array.isArray(raw) ? raw : (raw.feeds || []);
 
+            function normCountries(x) {
+              const abo = x && x.autoBorderOverrides;
+              const arr = abo && Array.isArray(abo.countries) ? abo.countries : [];
+              return arr
+                .map(c => String(c || "").trim().toUpperCase())
+                .filter(Boolean)
+                .join(",");
+            }
+
             const norm = list.map(x => {
               if (typeof x === "string") {
-                return { slug: x, url: "", localPath: "", autoSpanishOverrides: false };
+                return {
+                  slug: x,
+                  url: "",
+                  localPath: "",
+                  autoSpanishOverrides: false,
+                  countriesCsv: ""
+                };
               }
               if (!x || typeof x !== "object") return null;
               return {
                 slug: x.slug,
                 url: x.url || "",
                 localPath: x.localPath || "",
-                autoSpanishOverrides: !!x.autoSpanishOverrides
+                autoSpanishOverrides: !!x.autoSpanishOverrides,
+                countriesCsv: normCountries(x)
               };
             }).filter(x => x && x.slug);
 
@@ -96,7 +112,8 @@ jobs:
                 it.slug,
                 it.url,
                 it.localPath,
-                it.autoSpanishOverrides ? "1" : ""
+                it.autoSpanishOverrides ? "1" : "",
+                it.countriesCsv || ""
               ].map(v => String(v ?? "").replace(/\t/g, " "));
               console.log(cols.join("\t"));
             }
@@ -147,27 +164,33 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL COL3 COL4; do
+          while IFS=$'\t' read -r SLUG URL COL3 COL4 COL5; do
             [ -z "${SLUG:-}" ] && continue
 
             LOCAL_PATH=""
-            AUTO_SPANISH=""
+            AUTO_FLAG="${COL4:-}"
+            COUNTRIES="${COL5:-}"
 
             if [ -n "${COL4:-}" ]; then
-              # 4-column format: slug, url, localPath, autoFlag
               LOCAL_PATH="${COL3}"
-              AUTO_SPANISH="${COL4}"
-            else
-              # 3-column format: slug, url, autoFlag (no localPath)
-              AUTO_SPANISH="${COL3}"
             fi
 
-            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}'"
+            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' COUNTRIES='${COUNTRIES}'"
 
+            # Decide whether to enable Spanish auto overrides:
             AUTO_SPANISH_OVERRIDES_ENV=""
-            if [ "${AUTO_SPANISH:-}" = "1" ]; then
+
+            # Backwards-compat: if autoFlag is 1 and there is *no* autoBorderOverrides.countries,
+            # treat it as Spain-only.
+            if [ -z "${COUNTRIES}" ] && [ "${AUTO_FLAG}" = "1" ]; then
               AUTO_SPANISH_OVERRIDES_ENV="true"
             fi
+
+            # New behaviour: if ES is in the country list, enable Spanish logic.
+            if echo ",${COUNTRIES}," | grep -q ",ES,"; then
+              AUTO_SPANISH_OVERRIDES_ENV="true"
+            fi
+
             echo "AUTO_SPANISH_OVERRIDES for ${SLUG}: ${AUTO_SPANISH_OVERRIDES_ENV:-false}"
 
             mkdir -p "site/${SLUG}"
@@ -237,6 +260,8 @@ jobs:
             fi
             echo "OVERRIDES for ${SLUG}: ${OVR_FILE:-none}"
             [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
+
+
 
             run_builder() {
               if [ -n "${OVR_FILE}" ]; then
