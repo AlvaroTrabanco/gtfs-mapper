@@ -8,13 +8,9 @@
     "autoBorderOverrides": {
       "enabled": true,
       "countries": [
-        "ES",
         "CH"
       ],
       "timezonesByCountry": {
-        "ES": [
-          "Europe/Madrid"
-        ],
         "CH": []
       }
     }
