@@ -7,13 +7,9 @@
       "autoSpanishOverrides": false,
       "autoBorderOverrides": {
         "enabled": true,
-        "countries": [
-          "CH"
-        ],
+        "countries": ["CH"],
         "timezonesByCountry": {
-          "CH": [
-            "Europe/Zurich"
-          ]
+          "CH": ["Europe/Zurich"]
         }
       }
     },

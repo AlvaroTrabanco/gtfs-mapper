@@ -70,6 +70,7 @@ jobs:
           mkdir -p site
 
           # Build TSV: slug \t url \t localPath \t autoFlag \t countriesCsv
+          # Build TSV: slug \t url \t localPath \t autoFlag \t countriesCsv \t tzMapJson
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
@@ -87,6 +88,16 @@ jobs:
                 .join(",");
             }
 
+            function normTzMap(x) {
+              const abo = x && x.autoBorderOverrides;
+              const byCountry = abo && abo.timezonesByCountry && typeof abo.timezonesByCountry === "object"
+                ? abo.timezonesByCountry
+                : {};
+              // compact JSON, but ensure we dont emit tabs
+              const s = JSON.stringify(byCountry) || "{}";
+              return s.replace(/\t/g, " ");
+            }
+
             const norm = list.map(x => {
               if (typeof x === "string") {
                 return {
@@ -94,7 +105,8 @@ jobs:
                   url: "",
                   localPath: "",
                   autoSpanishOverrides: false,
-                  countriesCsv: ""
+                  countriesCsv: "",
+                  tzMapJson: "{}"
                 };
               }
               if (!x || typeof x !== "object") return null;
@@ -103,7 +115,8 @@ jobs:
                 url: x.url || "",
                 localPath: x.localPath || "",
                 autoSpanishOverrides: !!x.autoSpanishOverrides,
-                countriesCsv: normCountries(x)
+                countriesCsv: normCountries(x),
+                tzMapJson: normTzMap(x)
               };
             }).filter(x => x && x.slug);
 
@@ -113,7 +126,8 @@ jobs:
                 it.url,
                 it.localPath,
                 it.autoSpanishOverrides ? "1" : "",
-                it.countriesCsv || ""
+                it.countriesCsv || "",
+                it.tzMapJson || "{}"
               ].map(v => String(v ?? "").replace(/\t/g, " "));
               console.log(cols.join("\t"));
             }
@@ -164,12 +178,13 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL COL3 COL4 COL5; do
+          while IFS=$'\t' read -r SLUG URL COL3 COL4 COL5 COL6; do
             [ -z "${SLUG:-}" ] && continue
 
             LOCAL_PATH=""
             AUTO_FLAG="${COL4:-}"
             COUNTRIES="${COL5:-}"
+            TZ_MAP_JSON="${COL6:-}"
 
             if [ -n "${COL4:-}" ]; then
               LOCAL_PATH="${COL3}"
@@ -192,6 +207,10 @@ jobs:
             fi
 
             echo "AUTO_SPANISH_OVERRIDES for ${SLUG}: ${AUTO_SPANISH_OVERRIDES_ENV:-false}"
+
+            # New: generic border-country config
+            BORDER_COUNTRIES_ENV="${COUNTRIES}"
+            BORDER_TZ_MAP_JSON_ENV="${TZ_MAP_JSON}"
 
             mkdir -p "site/${SLUG}"
 
@@ -267,6 +286,8 @@ jobs:
               if [ -n "${OVR_FILE}" ]; then
                 AUTO_SPANISH_OVERRIDES="${AUTO_SPANISH_OVERRIDES_ENV}" \
                 SPANISH_DECISIONS="automation/spanish-country-decisions.json" \
+                BORDER_COUNTRIES="${BORDER_COUNTRIES_ENV}" \
+                BORDER_TZ_MAP_JSON="${BORDER_TZ_MAP_JSON_ENV}" \
                 FEED_SLUG="${SLUG}" \
                 FEED_URL="${EFFECTIVE_URL}" \
                 FEED_LOCAL_PATH="${EFFECTIVE_LOCAL}" \
@@ -278,6 +299,8 @@ jobs:
               else
                 AUTO_SPANISH_OVERRIDES="${AUTO_SPANISH_OVERRIDES_ENV}" \
                 SPANISH_DECISIONS="automation/spanish-country-decisions.json" \
+                BORDER_COUNTRIES="${BORDER_COUNTRIES_ENV}" \
+                BORDER_TZ_MAP_JSON="${BORDER_TZ_MAP_JSON_ENV}" \
                 FEED_SLUG="${SLUG}" \
                 FEED_URL="${EFFECTIVE_URL}" \
                 FEED_LOCAL_PATH="${EFFECTIVE_LOCAL}" \

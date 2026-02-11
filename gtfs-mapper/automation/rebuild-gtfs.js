@@ -35,15 +35,51 @@ const AUTO_SPANISH_OVERRIDES =
 const SPANISH_DECISIONS_PATH =
   process.env.SPANISH_DECISIONS || "automation/spanish-country-decisions.json";
 
-/* -------------------------- overrides auto-discovery ---------------------- */
-// Minimal timezone → country mapping, mirroring the Python script
-const TZ_TO_COUNTRY = {
+  // Comma-separated list of border countries (ES, CH, etc.), from Admin / feeds.json
+const BORDER_COUNTRIES = (process.env.BORDER_COUNTRIES || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+/* -------------------------- overrides / border auto-discovery ------------ */
+// Base timezone → country mapping (fallback)
+const BASE_TZ_TO_COUNTRY = {
   "Europe/Madrid": "ES",
   "Atlantic/Canary": "ES",
   "Europe/Paris": "FR",
   "Europe/Lisbon": "PT",
+  // a few obvious extras; can be extended if needed
+  "Europe/Zurich": "CH",
+  "Europe/Berlin": "DE",
+  "Europe/Rome": "IT",
 };
 
+// Start with the base map, then overlay the Admin config
+let TZ_TO_COUNTRY = { ...BASE_TZ_TO_COUNTRY };
+
+(function applyEnvTimezoneMap() {
+  let parsed = {};
+  try {
+    parsed = JSON.parse(process.env.BORDER_TZ_MAP_JSON || "{}");
+  } catch {
+    parsed = {};
+  }
+  if (!parsed || typeof parsed !== "object") return;
+
+  for (const [country, tzList] of Object.entries(parsed)) {
+    if (!Array.isArray(tzList)) continue;
+    for (const tz of tzList) {
+      if (!tz) continue;
+      TZ_TO_COUNTRY[String(tz).trim()] = String(country).trim();
+    }
+  }
+})();
+
+/**
+ * Map a GTFS stop_timezone string to a country code.
+ * If Admin provided a mapping in BORDER_TZ_MAP_JSON it wins;
+ * else we fall back to BASE_TZ_TO_COUNTRY.
+ */
 function tzToCountry(tz) {
   if (!tz) return "UNKNOWN";
   const key = String(tz).trim();
@@ -71,7 +107,9 @@ async function fileExists(p) {
 }
 
 async function loadSpanishDecisionsForSlug(slug) {
-  if (!AUTO_SPANISH_OVERRIDES) {
+  // Use this file whenever we are in "border auto" mode (countries configured)
+  // OR in legacy AUTO_SPANISH_OVERRIDES mode.
+  if (!AUTO_SPANISH_OVERRIDES && (!BORDER_COUNTRIES || !BORDER_COUNTRIES.length)) {
     return { raw: {}, source: "" };
   }
 
@@ -275,14 +313,24 @@ function importOverridesTolerant(raw, stop_times) {
 
   return out;
 }
+// ---------------------- Border auto rules builder (multi-country) --------- //
+function buildBorderAutoRestrictions({
+  slug,
+  stops,
+  stopTimes,
+  borderCountries,   // e.g. ["ES","CH"]
+  borderDecisions,   // JSON from SPANISH_DECISIONS_PATH
+}) {
+  const borderSet = new Set(
+    (borderCountries || []).map((c) => String(c || "").trim()).filter(Boolean)
+  );
+  if (!borderSet.size) return {};
 
-// ---------------------- Spanish auto rules builder ------------------------ //
-function buildSpanishAutoRestrictions({ slug, stops, stopTimes, spanishDecisions }) {
   // decisions JSON shape we expect:
-  // { decisions: { "<slug>::<stop_id>": { newCountry: "ES" | "FR" | "PT" | ... }, ... } }
+  // { decisions: { "<slug>::<stop_id>": { newCountry: "ES" | "CH" | ... }, ... } }
   const decisionsBlock =
-    spanishDecisions && typeof spanishDecisions === "object"
-      ? spanishDecisions.decisions || {}
+    borderDecisions && typeof borderDecisions === "object"
+      ? borderDecisions.decisions || {}
       : {};
 
   // 1) Stop → country from timezone
@@ -295,19 +343,20 @@ function buildSpanishAutoRestrictions({ slug, stops, stopTimes, spanishDecisions
     stopCountry.set(id, base);
   }
 
-  // 2) Apply explicit decisions (override timezone country)
+  // 2) Apply explicit decisions (override timezone country) per slug
   for (const [fullKey, val] of Object.entries(decisionsBlock)) {
     const [slugPrefix, stopId] = String(fullKey).split("::");
     if (slugPrefix !== slug) continue;
     if (!stopId) continue;
     const newCountry = (val && val.newCountry) || (val && val.country);
     if (!newCountry) continue;
-    stopCountry.set(stopId, newCountry);
+    stopCountry.set(stopId, String(newCountry).trim());
   }
 
-  const isSpanish = new Set();
+  // Quick lookup set of "border-country stops"
+  const isBorderStop = new Set();
   for (const [sid, country] of stopCountry.entries()) {
-    if (country === "ES") isSpanish.add(sid);
+    if (borderSet.has(country)) isBorderStop.add(sid);
   }
 
   // 3) Group stop_times by trip (ordered)
@@ -328,27 +377,26 @@ function buildSpanishAutoRestrictions({ slug, stops, stopTimes, spanishDecisions
   for (const [tripId, arr] of byTrip.entries()) {
     const seq = arr.map((st) => String(st.stop_id));
 
-    // Only bother if the trip actually crosses the Spanish border
-    const hasNonES = seq.some((sid) => {
-      const c = stopCountry.get(sid) || "UNKNOWN";
-      return c !== "ES";
-    });
-    if (!hasNonES) {
-      // Pure domestic Spanish trip → leave untouched for now
+    // Countries this trip touches
+    const tripCountries = new Set(
+      seq.map((sid) => stopCountry.get(sid) || "UNKNOWN")
+    );
+
+    // Only bother with trips that cross at least one border (multi-country)
+    if (tripCountries.size <= 1) {
+      // Domestic only (e.g. entirely in ES or entirely in CH) → skip for now
       continue;
     }
 
-    // For every Spanish stop on a cross-border trip, mark as `custom`.
-    // The OD compiler will turn these into the "border" behaviour:
-    //  - can drop off when coming from abroad
-    //  - can pick up when going abroad
+    // For every stop whose country is in borderSet on a cross-border trip,
+    // mark as `custom`. The OD compiler then does the segment split.
     seq.forEach((sid) => {
-      if (!isSpanish.has(sid)) return;
+      if (!isBorderStop.has(sid)) return;
       const key = `${tripId}::${sid}`;
       restrictions[key] = {
         mode: "custom",
-        // dropoffOnlyFrom / pickupOnlyTo are optional and mainly for admin debug,
-        // so we omit them here – the compiler only cares about `mode`.
+        // dropoffOnlyFrom / pickupOnlyTo left undefined:
+        // the compiler only needs `mode: "custom"`.
       };
     });
   }
@@ -559,16 +607,22 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         trips.forEach(t => { t.trip_headsign ??= ""; t.shape_id ??= ""; t.direction_id ??= ""; });
 
     let overridesRaw = {};
-    let spanishDecisions = null;
+    let borderDecisions = null;
     let effectiveOverridesSource = "";
 
-    if (AUTO_SPANISH_OVERRIDES) {
-      // Spanish auto mode: ignore overrides-*.json and instead build rules
-      // from timezone + spanish-country-decisions.json
+    const borderModeEnabled =
+      (BORDER_COUNTRIES && BORDER_COUNTRIES.length > 0) || AUTO_SPANISH_OVERRIDES;
+
+    if (borderModeEnabled) {
+      // "By country" mode: ignore per-trip overrides and rely on
+      // timezone + KML decisions (multi-country) for this slug.
       const { raw, source } = await loadSpanishDecisionsForSlug(SLUG);
-      spanishDecisions = raw || {};
+      borderDecisions = raw || {};
       effectiveOverridesSource = source || "";
-      console.log("[overrides] AUTO_SPANISH_OVERRIDES enabled — building rules from Spanish decisions");
+      console.log(
+        "[overrides] BORDER mode enabled; countries =",
+        BORDER_COUNTRIES.length ? BORDER_COUNTRIES.join(",") : "ES (legacy)"
+      );
     } else {
       // Default behaviour: generic overrides resolution (unchanged)
       const { text: overridesText, source } = await loadOverridesText();
@@ -615,7 +669,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     }
 
     console.log("[overrides] source =", effectiveOverridesSource || "(none)");
-    if (!AUTO_SPANISH_OVERRIDES) {
+    if (!borderModeEnabled) {
       console.log(
         "[overrides] slug =",
         SLUG,
@@ -625,12 +679,18 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     }
 
     let restrictions = {};
-    if (AUTO_SPANISH_OVERRIDES) {
-      restrictions = buildSpanishAutoRestrictions({
+    if (borderModeEnabled) {
+      const effectiveCountries =
+        BORDER_COUNTRIES && BORDER_COUNTRIES.length
+          ? BORDER_COUNTRIES
+          : ["ES"]; // legacy Spanish-only mode
+
+      restrictions = buildBorderAutoRestrictions({
         slug: SLUG,
         stops,
         stopTimes,
-        spanishDecisions,
+        borderCountries: effectiveCountries,
+        borderDecisions,
       });
     } else {
       restrictions = importOverridesTolerant(overridesRaw, stopTimes);
@@ -756,7 +816,9 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         sampleOverrides,
         modifiedStopTimesSample: modifiedSamples,
         spanishAutoEnabled: AUTO_SPANISH_OVERRIDES,
-        spanishDecisionsFile: AUTO_SPANISH_OVERRIDES ? SPANISH_DECISIONS_PATH : "",
+        spanishDecisionsFile: borderModeEnabled ? SPANISH_DECISIONS_PATH : "",
+        borderModeEnabled,
+        borderCountries: BORDER_COUNTRIES,
       },
     };
 
