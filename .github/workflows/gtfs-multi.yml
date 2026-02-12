@@ -184,59 +184,17 @@ jobs:
             fi
           }
 
-          any_fail=0
-          # We only trust the first two columns of feeds.tsv:
+                    any_fail=0
+          # feeds.tsv columns (fully under our control):
           # 1: SLUG
           # 2: URL
-          # Everything else we re-read from automation/feeds.json per slug.
-          while IFS=$'\t' read -r SLUG URL REST; do
+          # 3: LOCAL_PATH          (feed.localPath)
+          # 4: AUTO_FLAG           ("1" if autoSpanishOverrides true, else "")
+          # 5: COUNTRIES           (comma-separated, from autoBorderOverrides.countries)
+          # 6: TZ_MAP_JSON         (JSON string of timezonesByCountry)
+          # 7: BORDER_ENABLED      ("1" if autoBorderOverrides.enabled, else "")
+          while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON BORDER_ENABLED; do
             [ -z "${SLUG:-}" ] && continue
-
-            # Look up full feed metadata from automation/feeds.json for this slug
-            META="$(node -e '
-              const fs = require("fs");
-              const slug = process.argv[2];
-              const raw = JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));
-              const list = Array.isArray(raw) ? raw : (raw.feeds || []);
-
-              function normCountries(abo) {
-                const arr = abo && Array.isArray(abo.countries) ? abo.countries : [];
-                return arr
-                  .map(c => String(c || "").trim().toUpperCase())
-                  .filter(Boolean)
-                  .join(",");
-              }
-
-              function normTzMap(abo) {
-                const byCountry = abo && abo.timezonesByCountry && typeof abo.timezonesByCountry === "object"
-                  ? abo.timezonesByCountry
-                  : {};
-                const s = JSON.stringify(byCountry) || "{}";
-                return s.replace(/\t/g, " ");
-              }
-
-              const feed = list.find(x => (typeof x === "string" ? x : x.slug) === slug) || {};
-              const abo  = feed.autoBorderOverrides || {};
-
-              const localPath       = feed.localPath || "";
-              const autoFlag        = feed.autoSpanishOverrides ? "1" : "";
-              const countriesCsv    = normCountries(abo);
-              const tzMapJson       = normTzMap(abo);
-              const borderEnabled   = abo.enabled ? "1" : "";
-
-              const cols = [
-                localPath,
-                autoFlag,
-                countriesCsv,
-                tzMapJson,
-                borderEnabled
-              ].map(v => String(v ?? "").replace(/\t/g, " "));
-              process.stdout.write(cols.join("\t"));
-            ' "$SLUG")"
-
-            # Split the metadata we just got from Node:
-            IFS=$'\t' read -r LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON BORDER_ENABLED <<< "${META}"
-            unset IFS
 
             [ -z "${TZ_MAP_JSON:-}" ] && TZ_MAP_JSON="{}"
 
