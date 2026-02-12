@@ -69,7 +69,7 @@ jobs:
           set -euo pipefail
           mkdir -p site
 
-          # Build TSV: slug \t url \t localPath \t autoFlag \t countriesCsv \t tzMapJson
+          # Build TSV: slug \t url \t localPath \t autoFlag \t countriesCsv \t tzMapJson \t autoBorderEnabled
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
@@ -93,7 +93,6 @@ jobs:
               const byCountry = abo && abo.timezonesByCountry && typeof abo.timezonesByCountry === "object"
                 ? abo.timezonesByCountry
                 : {};
-              // compact JSON, but ensure we dont emit tabs
               const s = JSON.stringify(byCountry) || "{}";
               return s.replace(/\t/g, " ");
             }
@@ -106,17 +105,23 @@ jobs:
                   localPath: "",
                   autoSpanishOverrides: false,
                   countriesCsv: "",
-                  tzMapJson: "{}"
+                  tzMapJson: "{}",
+                  autoBorderEnabled: false
                 };
               }
               if (!x || typeof x !== "object") return null;
+
+              const abo = x.autoBorderOverrides || {};
+              const autoBorderEnabled = !!abo.enabled;
+
               return {
                 slug: x.slug,
                 url: x.url || "",
                 localPath: x.localPath || "",
                 autoSpanishOverrides: !!x.autoSpanishOverrides,
                 countriesCsv: normCountries(x),
-                tzMapJson: normTzMap(x)
+                tzMapJson: normTzMap(x),
+                autoBorderEnabled
               };
             }).filter(x => x && x.slug);
 
@@ -127,7 +132,8 @@ jobs:
                 it.localPath,
                 it.autoSpanishOverrides ? "1" : "",
                 it.countriesCsv || "",
-                it.tzMapJson || "{}"
+                it.tzMapJson || "{}",
+                it.autoBorderEnabled ? "1" : ""
               ].map(v => String(v ?? "").replace(/\t/g, " "));
               console.log(cols.join("\t"));
             }
@@ -179,73 +185,60 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL COL3 COL4 COL5 COL6; do
+          # Now feeds.tsv columns are:
+          # 1: SLUG
+          # 2: URL
+          # 3: LOCAL_PATH
+          # 4: AUTO_FLAG (autoSpanishOverrides)
+          # 5: COUNTRIES (comma-separated)
+          # 6: TZ_MAP_JSON (stringified timezonesByCountry)
+          # 7: BORDER_ENABLED (0/1 from autoBorderOverrides.enabled)
+          while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON BORDER_ENABLED; do
             [ -z "${SLUG:-}" ] && continue
 
-            # We no longer trust column order. Infer meaning by value shape.
-            AUTO_FLAG=""
-            LOCAL_PATH=""
-            COUNTRIES=""
-            TZ_MAP_JSON=""
+            # Normalise empty tz map
+            [ -z "${TZ_MAP_JSON:-}" ] && TZ_MAP_JSON="{}"
 
-            for val in "$COL3" "$COL4" "$COL5" "$COL6"; do
-              [ -z "${val}" ] && continue
-
-              # tzMapJson: JSON object like {"CH":["Europe/Zurich"]}
-              if [ -z "${TZ_MAP_JSON}" ] && [[ "${val}" == \{* ]] && [[ "${val}" == *:* ]]; then
-                TZ_MAP_JSON="${val}"
-                continue
-              fi
-
-              # autoFlag: "1" or "0"
-              if [ -z "${AUTO_FLAG}" ] && { [ "${val}" = "1" ] || [ "${val}" = "0" ]; }; then
-                AUTO_FLAG="${val}"
-                continue
-              fi
-
-              # countriesCsv: comma-separated 2-letter uppercase codes
-              if [ -z "${COUNTRIES}" ] && [[ "${val}" =~ ^[A-Z]{2}(,[A-Z]{2})*$ ]]; then
-                COUNTRIES="${val}"
-                continue
-              fi
-
-              # localPath: looks like a path or zip filename
-              if [ -z "${LOCAL_PATH}" ] && { [[ "${val}" == *"/"* ]] || [[ "${val}" == *.zip ]]; }; then
-                LOCAL_PATH="${val}"
-                continue
-              fi
-            done
-
-            [ -z "${TZ_MAP_JSON}" ] && TZ_MAP_JSON="{}"
-
-            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' AUTO_FLAG='${AUTO_FLAG}' COUNTRIES='${COUNTRIES}' TZ_MAP_JSON='${TZ_MAP_JSON}'"
+            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' AUTO_FLAG='${AUTO_FLAG}' COUNTRIES='${COUNTRIES}' TZ_MAP_JSON='${TZ_MAP_JSON}' BORDER_ENABLED='${BORDER_ENABLED}'"
             echo "[border-env] FEED_SLUG = ${SLUG}"
-            echo "[border-env] process.env.BORDER_COUNTRIES (raw) = ${COUNTRIES:-<empty>}"
-            echo "[border-env] process.env.BORDER_TZ_MAP_JSON (raw) = ${TZ_MAP_JSON:-<empty>}"
+            echo "[border-env] BORDER_ENABLED = ${BORDER_ENABLED:-0}"
 
-            # Decide whether to enable Spain-specific auto overrides
+            # Decide whether to enable Spain-specific auto overrides (AUTO_SPANISH_OVERRIDES)
             AUTO_SPANISH_OVERRIDES_ENV=""
 
-            # Backwards-compat: if autoFlag is 1 and there is *no* autoBorderOverrides.countries,
-            # treat it as Spain-only.
+            # Backwards-compat: old Spain-only feeds (no countries, autoSpanishOverrides = true)
             if [ -z "${COUNTRIES}" ] && [ "${AUTO_FLAG}" = "1" ]; then
               AUTO_SPANISH_OVERRIDES_ENV="true"
             fi
 
-            # New behaviour: if ES is in the country list, enable Spanish logic.
-            if echo ",${COUNTRIES}," | grep -q ",ES,"; then
+            # New behaviour: if border mode is enabled AND ES is in the list, allow Spanish decisions
+            if [ "${BORDER_ENABLED}" = "1" ] && echo ",${COUNTRIES}," | grep -q ",ES,"; then
               AUTO_SPANISH_OVERRIDES_ENV="true"
+            fi
+
+            # If Admin disabled autoBorderOverrides but there *are* countries configured,
+            # treat this feed as "manual overrides only" – disable auto Spanish too.
+            if [ "${BORDER_ENABLED}" != "1" ] && [ -n "${COUNTRIES}" ]; then
+              AUTO_SPANISH_OVERRIDES_ENV=""
             fi
 
             echo "AUTO_SPANISH_OVERRIDES for ${SLUG}: ${AUTO_SPANISH_OVERRIDES_ENV:-false}"
 
-            # Border-mode envs passed to rebuild-gtfs.js
-            BORDER_COUNTRIES_ENV="${COUNTRIES}"
-            BORDER_TZ_MAP_JSON_ENV="${TZ_MAP_JSON}"
+            # Border-mode envs passed to rebuild-gtfs.js: only when enabled
+            if [ "${BORDER_ENABLED}" = "1" ]; then
+              BORDER_COUNTRIES_ENV="${COUNTRIES}"
+              BORDER_TZ_MAP_JSON_ENV="${TZ_MAP_JSON}"
+            else
+              BORDER_COUNTRIES_ENV=""
+              BORDER_TZ_MAP_JSON_ENV="{}"
+            fi
 
             mkdir -p "site/${SLUG}"
 
             # Decide effective source for this feed:
+            # - If URL is http(s) => remote feed (EFFECTIVE_URL)
+            # - Else if URL is non-empty and LOCAL_PATH is empty => treat URL as local path
+            # - Else use LOCAL_PATH as local path
             EFFECTIVE_URL=""
             EFFECTIVE_LOCAL="${LOCAL_PATH:-}"
 
