@@ -1,9 +1,11 @@
 // ESM Netlify function (Node 18+)
-// Env vars on Netlify admin site: ADMIN_KEY, GH_TOKEN, REPO_OWNER, REPO_NAME, TARGET_BRANCH
+// Env vars on Netlify admin site: ADMIN_KEY, GH_TOKEN, REPO_OWNER, REPO_NAME, TARGET_BRANCH, GTFS_MAPPER_WORKFLOW
 import { Octokit } from "@octokit/rest";
 
 function normPath(p) {
-  const clean = String(p || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  const clean = String(p || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
   if (clean.includes("..")) throw new Error("Invalid path");
   return clean;
 }
@@ -17,24 +19,35 @@ export const handler = async (event) => {
     const body = JSON.parse(event.body || "{}");
     const {
       key,
-      op,                // "readFile" | "writeFile" | "deleteFile" | "moveFile" | "upsertOverridesSlug" | "deleteSlugFromOverrides" | "renameSlugInOverrides"
+      op, // "ping" | "triggerBuildGtfsMapper" | "readFile" | "writeFile" | "deleteFile" | "moveFile" | "upsertOverridesSlug" | "deleteSlugFromOverrides" | "renameSlugInOverrides" | "updateFeedConfig"
       path,
-      content,           // string for writeFile
-      src, dest,         // for moveFile
-      slug,              // for overrides ops
-      newSlug,           // for renameSlugInOverrides
-      overridesJson,     // string (raw JSON) when default write
-      commitMessage
+      content, // string for writeFile
+      src,
+      dest, // for moveFile
+      slug, // for overrides ops & feed config
+      newSlug, // for renameSlugInOverrides
+      overridesJson, // string (raw JSON) when default write
+      commitMessage,
+
+      // NEW: feed config fields from Admin UI for updateFeedConfig
+      autoBorderEnabled,
+      autoSpanishOverrides,
+      countries,
+      timezonesByCountry,
     } = body;
 
     if (!key || key !== process.env.ADMIN_KEY) {
       return { statusCode: 401, body: "Unauthorized" };
     }
 
-    const owner  = process.env.REPO_OWNER;
-    const repo   = process.env.REPO_NAME;
+    const owner = process.env.REPO_OWNER;
+    const repo = process.env.REPO_NAME;
     const branch = process.env.TARGET_BRANCH || "main";
-    const token  = process.env.GH_TOKEN;
+    const token = process.env.GH_TOKEN;
+
+    // Workflow file name or id for "Build & Deploy GTFS Mapper"
+    const gtfsMapperWorkflowId =
+      process.env.GTFS_MAPPER_WORKFLOW || "gtfs-multi.yml";
 
     // ---- Debug / health-check op -----------------------------------------
     if (op === "ping") {
@@ -64,14 +77,14 @@ export const handler = async (event) => {
 
     const octokit = new Octokit({ auth: token });
 
-        // Workflow file name or id for "Build & Deploy GTFS Mapper"
-    // e.g. .github/workflows/build-deploy-gtfs-mapper.yml
-    const gtfsMapperWorkflowId =
-      process.env.GTFS_MAPPER_WORKFLOW || "gtfs-multi.yml";
-
     async function getFile(pth) {
       const p = normPath(pth);
-      const res = await octokit.repos.getContent({ owner, repo, path: p, ref: branch });
+      const res = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: p,
+        ref: branch,
+      });
       if (Array.isArray(res.data)) throw new Error("Path refers to a directory");
       const { sha, content: b64, encoding } = res.data;
       const buff = Buffer.from(b64, encoding === "base64" ? "base64" : "utf8");
@@ -82,31 +95,65 @@ export const handler = async (event) => {
       const p = normPath(pth);
       let sha;
       try {
-        const res = await octokit.repos.getContent({ owner, repo, path: p, ref: branch });
+        const res = await octokit.repos.getContent({
+          owner,
+          repo,
+          path: p,
+          ref: branch,
+        });
         if (!Array.isArray(res.data)) sha = res.data.sha;
       } catch (e) {
         if (e.status !== 404) throw e;
       }
-      const contentB64 = Buffer.from(String(text ?? ""), "utf8").toString("base64");
+      const contentB64 = Buffer.from(String(text ?? ""), "utf8").toString(
+        "base64"
+      );
       const { data } = await octokit.repos.createOrUpdateFileContents({
-        owner, repo, path: p, message: msg, content: contentB64, branch, ...(sha ? { sha } : {})
+        owner,
+        repo,
+        path: p,
+        message: msg,
+        content: contentB64,
+        branch,
+        ...(sha ? { sha } : {}),
       });
-      return { ok: true, path: p, branch, commit: data.commit?.sha, html_url: data.content?.html_url || null };
+      return {
+        ok: true,
+        path: p,
+        branch,
+        commit: data.commit?.sha,
+        html_url: data.content?.html_url || null,
+      };
     }
 
     async function deleteFile(pth, msg) {
       const p = normPath(pth);
-      const res = await octokit.repos.getContent({ owner, repo, path: p, ref: branch }).catch(e => {
-        if (e.status === 404) return null; throw e;
-      });
+      const res = await octokit.repos
+        .getContent({ owner, repo, path: p, ref: branch })
+        .catch((e) => {
+          if (e.status === 404) return null;
+          throw e;
+        });
       if (!res) return { ok: true, deleted: false, path: p };
       const sha = Array.isArray(res.data) ? null : res.data.sha;
       if (!sha) return { ok: true, deleted: false, path: p };
-      const { data } = await octokit.repos.deleteFile({ owner, repo, path: p, message: msg, branch, sha });
-      return { ok: true, deleted: true, path: p, commit: data.commit?.sha };
+      const { data } = await octokit.repos.deleteFile({
+        owner,
+        repo,
+        path: p,
+        message: msg,
+        branch,
+        sha,
+      });
+      return {
+        ok: true,
+        deleted: true,
+        path: p,
+        commit: data.commit?.sha,
+      };
     }
 
-        // Trigger Build & Deploy GTFS Mapper GitHub Action
+    // Trigger Build & Deploy GTFS Mapper GitHub Action
     if (op === "triggerBuildGtfsMapper") {
       try {
         await octokit.actions.createWorkflowDispatch({
@@ -136,59 +183,211 @@ export const handler = async (event) => {
       }
     }
 
-    // --- API ops ---
+    // --- NEW: update one feed entry in gtfs-mapper/automation/feeds.json ---
+    if (op === "updateFeedConfig") {
+      if (!slug) {
+        return {
+          statusCode: 400,
+          body: "Bad Request: slug required for updateFeedConfig",
+        };
+      }
+
+      const feedsPath = "gtfs-mapper/automation/feeds.json";
+
+      let text;
+      try {
+        ({ text } = await getFile(feedsPath));
+      } catch (e) {
+        if (e.status === 404) {
+          return {
+            statusCode: 500,
+            body: JSON.stringify({
+              ok: false,
+              error: `${feedsPath} not found`,
+            }),
+          };
+        }
+        throw e;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({
+            ok: false,
+            error: `Invalid JSON in ${feedsPath}: ${e.message}`,
+          }),
+        };
+      }
+
+      const feedsArr = Array.isArray(parsed)
+        ? parsed
+        : parsed.feeds || [];
+
+      const idx = feedsArr.findIndex((x) =>
+        typeof x === "string" ? x === slug : x.slug === slug
+      );
+
+      if (idx === -1) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            ok: false,
+            error: `Slug ${slug} not found in ${feedsPath}`,
+          }),
+        };
+      }
+
+      const current =
+        typeof feedsArr[idx] === "string"
+          ? { slug: feedsArr[idx] }
+          : { ...feedsArr[idx] };
+
+      const existingABO = current.autoBorderOverrides || {};
+
+      // Normalize incoming values
+      const boolAutoBorderEnabled = !!autoBorderEnabled;
+      const boolAutoSpanishOverrides = !!autoSpanishOverrides;
+
+      const newCountries = Array.isArray(countries)
+        ? countries
+        : existingABO.countries || [];
+
+      const newTzByCountry =
+        timezonesByCountry && typeof timezonesByCountry === "object"
+          ? timezonesByCountry
+          : existingABO.timezonesByCountry || {};
+
+      current.autoSpanishOverrides = boolAutoSpanishOverrides;
+      current.autoBorderOverrides = {
+        ...existingABO,
+        enabled: boolAutoBorderEnabled,
+        countries: newCountries,
+        timezonesByCountry: newTzByCountry,
+      };
+
+      feedsArr[idx] = current;
+
+      const newFeedsJson = Array.isArray(parsed)
+        ? feedsArr
+        : { ...parsed, feeds: feedsArr };
+
+      const msg =
+        commitMessage || `chore: update feed config for ${slug}`;
+      const result = await putFile(
+        feedsPath,
+        JSON.stringify(newFeedsJson, null, 2),
+        msg
+      );
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          ok: true,
+          path: feedsPath,
+          commit: result.commit,
+        }),
+      };
+    }
+
+    // --- API ops for generic file access -----------------------------
+
     if (op === "readFile") {
-      if (!path) return { statusCode: 400, body: "Bad Request: path required for readFile" };
+      if (!path)
+        return {
+          statusCode: 400,
+          body: "Bad Request: path required for readFile",
+        };
       const { text } = await getFile(path);
-      return { statusCode: 200, body: JSON.stringify({ ok: true, content: text }) };
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ ok: true, content: text }),
+      };
     }
 
     if (op === "writeFile") {
-      if (!path || typeof content !== "string") return { statusCode: 400, body: "Bad Request: path+content required for writeFile" };
-      const msg = commitMessage || `chore: update ${normPath(path)}`;
+      if (!path || typeof content !== "string")
+        return {
+          statusCode: 400,
+          body: "Bad Request: path+content required for writeFile",
+        };
+      const msg =
+        commitMessage || `chore: update ${normPath(path)}`;
       const result = await putFile(path, content, msg);
       return { statusCode: 200, body: JSON.stringify(result) };
     }
 
     if (op === "deleteFile") {
-      if (!path) return { statusCode: 400, body: "Bad Request: path required for deleteFile" };
-      const msg = commitMessage || `chore: delete ${normPath(path)}`;
+      if (!path)
+        return {
+          statusCode: 400,
+          body: "Bad Request: path required for deleteFile",
+        };
+      const msg =
+        commitMessage || `chore: delete ${normPath(path)}`;
       const result = await deleteFile(path, msg);
       return { statusCode: 200, body: JSON.stringify(result) };
     }
 
     if (op === "moveFile") {
-      if (!src || !dest) return { statusCode: 400, body: "Bad Request: src & dest required for moveFile" };
-      const from = normPath(src), to = normPath(dest);
+      if (!src || !dest)
+        return {
+          statusCode: 400,
+          body: "Bad Request: src & dest required for moveFile",
+        };
+      const from = normPath(src),
+        to = normPath(dest);
       let text = "";
-      try { text = (await getFile(from)).text; } catch (e) {
-        if (e.status === 404) return { statusCode: 404, body: JSON.stringify({ ok:false, error:"Source not found" }) };
+      try {
+        text = (await getFile(from)).text;
+      } catch (e) {
+        if (e.status === 404) {
+          return {
+            statusCode: 404,
+            body: JSON.stringify({
+              ok: false,
+              error: "Source not found",
+            }),
+          };
+        }
         throw e;
       }
-      const msg = commitMessage || `chore: move ${from} -> ${to}`;
+      const msg =
+        commitMessage || `chore: move ${from} -> ${to}`;
       await putFile(to, text, msg);
       await deleteFile(from, msg);
-      return { statusCode: 200, body: JSON.stringify({ ok:true, src: from, dest: to }) };
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ ok: true, src: from, dest: to }),
+      };
     }
 
     // upsert one slug in legacy gtfs-mapper/automation/overrides.json
     if (op === "upsertOverridesSlug") {
       if (!slug) {
-        return { statusCode: 400, body: "Bad Request: slug required" };
+        return {
+          statusCode: 400,
+          body: "Bad Request: slug required",
+        };
       }
 
       // accept either `content` or `overridesJson` from the client
       const rawOverrides =
         typeof content === "string" && content.trim()
           ? content
-          : typeof overridesJson === "string" && overridesJson.trim()
+          : typeof overridesJson === "string" &&
+            overridesJson.trim()
           ? overridesJson
           : null;
 
       if (!rawOverrides) {
         return {
           statusCode: 400,
-          body: "Bad Request: content/overridesJson (stringified JSON) required",
+          body:
+            "Bad Request: content/overridesJson (stringified JSON) required",
         };
       }
 
@@ -212,68 +411,139 @@ export const handler = async (event) => {
         const txt = (await getFile(p)).text;
         const parsed = JSON.parse(txt);
         obj = parsed && typeof parsed === "object" ? parsed : obj;
-        if (!obj.overrides || typeof obj.overrides !== "object") obj.overrides = {};
+        if (!obj.overrides || typeof obj.overrides !== "object")
+          obj.overrides = {};
       } catch (e) {
         if (e.status !== 404) throw e; // if file missing, we start fresh
       }
 
       obj.overrides[slug] = parsedForSlug;
 
-      const msg = commitMessage || `chore: upsert overrides for ${slug}`;
-      const res = await putFile(p, JSON.stringify(obj, null, 2), msg);
-      return { statusCode: 200, body: JSON.stringify(res) };
+      const msg =
+        commitMessage ||
+        `chore: upsert overrides for ${slug}`;
+      const res = await putFile(
+        p,
+        JSON.stringify(obj, null, 2),
+        msg
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify(res),
+      };
     }
 
     if (op === "deleteSlugFromOverrides") {
-      if (!slug) return { statusCode: 400, body: "Bad Request: slug required" };
+      if (!slug)
+        return {
+          statusCode: 400,
+          body: "Bad Request: slug required",
+        };
       const p = "gtfs-mapper/automation/overrides.json";
       let obj;
       try {
         const txt = (await getFile(p)).text;
         obj = JSON.parse(txt);
       } catch (e) {
-        if (e.status === 404) return { statusCode: 200, body: JSON.stringify({ ok:true, deleted:false }) };
+        if (e.status === 404) {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({ ok: true, deleted: false }),
+          };
+        }
         throw e;
       }
       if (obj && obj.overrides && obj.overrides[slug]) {
         delete obj.overrides[slug];
-        const msg = commitMessage || `chore: delete ${slug} from overrides.json`;
-        const res = await putFile(p, JSON.stringify(obj, null, 2), msg);
-        return { statusCode: 200, body: JSON.stringify(res) };
+        const msg =
+          commitMessage ||
+          `chore: delete ${slug} from overrides.json`;
+        const res = await putFile(
+          p,
+          JSON.stringify(obj, null, 2),
+          msg
+        );
+        return {
+          statusCode: 200,
+          body: JSON.stringify(res),
+        };
       }
-      return { statusCode: 200, body: JSON.stringify({ ok:true, deleted:false }) };
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ ok: true, deleted: false }),
+      };
     }
 
     if (op === "renameSlugInOverrides") {
-      if (!slug || !newSlug) return { statusCode: 400, body: "Bad Request: slug & newSlug required" };
+      if (!slug || !newSlug) {
+        return {
+          statusCode: 400,
+          body: "Bad Request: slug & newSlug required",
+        };
+      }
       const p = "gtfs-mapper/automation/overrides.json";
       let obj;
       try {
         const txt = (await getFile(p)).text;
         obj = JSON.parse(txt);
       } catch (e) {
-        if (e.status === 404) return { statusCode: 200, body: JSON.stringify({ ok:true, changed:false }) };
+        if (e.status === 404) {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({ ok: true, changed: false }),
+          };
+        }
         throw e;
       }
       if (!obj || !obj.overrides || !obj.overrides[slug]) {
-        return { statusCode: 200, body: JSON.stringify({ ok:true, changed:false }) };
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ ok: true, changed: false }),
+        };
       }
       obj.overrides[newSlug] = obj.overrides[slug];
       delete obj.overrides[slug];
-      const msg = commitMessage || `chore: rename overrides slug ${slug} -> ${newSlug}`;
-      const res = await putFile(p, JSON.stringify(obj, null, 2), msg);
-      return { statusCode: 200, body: JSON.stringify(res) };
+      const msg =
+        commitMessage ||
+        `chore: rename overrides slug ${slug} -> ${newSlug}`;
+      const res = await putFile(
+        p,
+        JSON.stringify(obj, null, 2),
+        msg
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify(res),
+      };
     }
 
     // Default: write a per-file overrides JSON
-    if (typeof overridesJson !== "string") return { statusCode: 400, body: "Bad Request: overridesJson (string) required" };
-    const targetPath = normPath(path || "gtfs-mapper/automation/overrides.json");
-    const filename = targetPath.split("/").pop() || "overrides.json";
-    const msg = commitMessage || `chore: update ${filename} via admin uploader`;
-    const result = await putFile(targetPath, overridesJson, msg);
-    return { statusCode: 200, body: JSON.stringify(result) };
+    if (typeof overridesJson !== "string") {
+      return {
+        statusCode: 400,
+        body: "Bad Request: overridesJson (string) required",
+      };
+    }
+    const targetPath = normPath(
+      path || "gtfs-mapper/automation/overrides.json"
+    );
+    const filename =
+      targetPath.split("/").pop() || "overrides.json";
+    const msg =
+      commitMessage ||
+      `chore: update ${filename} via admin uploader`;
+    const result = await putFile(
+      targetPath,
+      overridesJson,
+      msg
+    );
+    return {
+      statusCode: 200,
+      body: JSON.stringify(result),
+    };
   } catch (err) {
-    const code = err.status && Number.isInteger(err.status) ? err.status : 500;
+    const code =
+      err.status && Number.isInteger(err.status) ? err.status : 500;
 
     // Log to Netlify function logs for debugging
     console.error("upload-overrides error:", err);
@@ -281,8 +551,12 @@ export const handler = async (event) => {
     // Return structured JSON so the Admin can show a proper message
     const body = {
       ok: false,
-      error: err && err.message ? String(err.message) : "Unknown error",
-      stack: err && err.stack ? String(err.stack) : undefined,
+      error:
+        err && err.message
+          ? String(err.message)
+          : "Unknown error",
+      stack:
+        err && err.stack ? String(err.stack) : undefined,
     };
 
     return {

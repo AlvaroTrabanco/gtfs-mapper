@@ -1396,7 +1396,54 @@
     });
   }
 
-  // ---- Upload overrides ----
+    // ---- NEW: ensure feed's auto flags are updated in feeds.json -----------
+  async function ensureFeedAutoFlags({ key, slug, autoSpanish }) {
+    const r = await callFn({ key, op: "readFile", path: feedsPath });
+
+    let current = [];
+    try {
+      const parsed = JSON.parse(r.content || "[]");
+      current = Array.isArray(parsed) ? parsed : (parsed.feeds || []);
+    } catch {
+      current = [];
+    }
+    if (!Array.isArray(current)) current = [];
+
+    const idx = current.findIndex(x => (x?.slug || x) === slug);
+    if (idx === -1) {
+      // Feed not found, nothing to update
+      return;
+    }
+
+    const feed = current[idx] && typeof current[idx] === "object"
+      ? { ...current[idx] }
+      : { slug };
+
+    // Turn automatic Spanish / border overrides on/off
+    feed.autoSpanishOverrides = !!autoSpanish;
+
+    // Preserve any existing countries/timezones, just flip ".enabled"
+    const rawAbo = feed.autoBorderOverrides && typeof feed.autoBorderOverrides === "object"
+      ? feed.autoBorderOverrides
+      : { enabled: false, countries: [], timezonesByCountry: {} };
+
+    feed.autoBorderOverrides = {
+      ...rawAbo,
+      enabled: !!autoSpanish && Array.isArray(rawAbo.countries) && rawAbo.countries.length > 0,
+    };
+
+    current[idx] = feed;
+
+    await callFn({
+      key,
+      op: "writeFile",
+      path: feedsPath,
+      content: JSON.stringify(current, null, 2),
+      commitMessage: `chore: toggle auto overrides for ${slug} via overrides upload`,
+    });
+  }
+
+// ---- Upload overrides ----
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
@@ -1406,6 +1453,7 @@
       if (!slug) throw new Error("Pick or enter a feed slug.");
 
       const useAutoSpanish = !!autoSpanishOverridesInput?.checked;
+
       if (useAutoSpanish) {
         uiMessage(
           `This feed is set to <code>Use automatic overrides by country</code>.<br>` +
@@ -1415,10 +1463,17 @@
         return;
       }
 
+      // NEW: when uploading manual overrides, force this feed to manual mode
+      // in feeds.json so auto-border processing is turned off.
+      await ensureFeedAutoFlags({
+        key,
+        slug,
+        autoSpanish: false,
+      });
+
       const msg  = commitInputEl ? commitInputEl.value.trim() : "";
       const file = fileInput.files?.[0];
       if (!file) throw new Error("Pick an overrides JSON file.");
-
       const txt = lastJsonText || await file.text();
       const parsed = JSON.parse(txt);
       const normalized = normalizeOverridesForSlug(parsed, slug);
