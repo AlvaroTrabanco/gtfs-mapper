@@ -178,19 +178,15 @@ jobs:
           }
 
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL COL3 COL4 COL5 COL6; do
-            [ -z "${SLUG:-}" ] && continue
+            while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON; do
+              [ -z "${SLUG:-}" ] && continue
 
-            LOCAL_PATH=""
-            AUTO_FLAG="${COL4:-}"
-            COUNTRIES="${COL5:-}"
-            TZ_MAP_JSON="${COL6:-}"
-
-            if [ -n "${COL4:-}" ]; then
-              LOCAL_PATH="${COL3}"
-            fi
-
-            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' COUNTRIES='${COUNTRIES}'"
+              # LOCAL_PATH is already the third column in feeds.tsv
+              # COUNTRIES is already the fifth column in feeds.tsv
+              echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' COUNTRIES='${COUNTRIES}'"
+              echo "[border-env] FEED_SLUG = ${SLUG}"
+              echo "[border-env] process.env.BORDER_COUNTRIES (raw) = ${COUNTRIES:-<empty>}"
+              echo "[border-env] process.env.BORDER_TZ_MAP_JSON (raw) = ${TZ_MAP_JSON:-<empty>}"
 
             # Decide whether to enable Spanish auto overrides:
             AUTO_SPANISH_OVERRIDES_ENV=""
