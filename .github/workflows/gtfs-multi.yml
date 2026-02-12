@@ -94,6 +94,7 @@ jobs:
                 ? abo.timezonesByCountry
                 : {};
               const s = JSON.stringify(byCountry) || "{}";
+              // Avoid tabs inside the JSON so it stays TSV-safe.
               return s.replace(/\t/g, " ");
             }
 
@@ -127,13 +128,13 @@ jobs:
 
             for (const it of norm) {
               const cols = [
-                it.slug,
-                it.url,
-                it.localPath,
-                it.autoSpanishOverrides ? "1" : "",
-                it.countriesCsv || "",
-                it.tzMapJson || "{}",
-                it.autoBorderEnabled ? "1" : ""
+                it.slug,                               // 1
+                it.url,                                // 2
+                it.localPath,                          // 3
+                it.autoSpanishOverrides ? "1" : "",    // 4 (AUTO_FLAG)
+                it.countriesCsv || "",                 // 5
+                it.tzMapJson || "{}",                  // 6
+                it.autoBorderEnabled ? "1" : ""        // 7 (BORDER_ENABLED)
               ].map(v => String(v ?? "").replace(/\t/g, " "));
               console.log(cols.join("\t"));
             }
@@ -300,14 +301,25 @@ jobs:
             fi
 
             # --------------------------------------------
-            # Compile with overrides (per-slug preferred)
+            # Compile with overrides, depending on mode
             # --------------------------------------------
             OVR_FILE=""
-            if [ -f "automation/overrides-${SLUG}.json" ]; then
-              OVR_FILE="automation/overrides-${SLUG}.json"
-            elif [ -f "automation/overrides.json" ]; then
-              OVR_FILE="automation/overrides.json"
+
+            if [ "${BORDER_ENABLED}" = "1" ]; then
+              # Auto border mode → ignore per-slug manual overrides.
+              # Only use global overrides.json (typically the Spain / multi-country rules).
+              if [ -f "automation/overrides.json" ]; then
+                OVR_FILE="automation/overrides.json"
+              fi
+            else
+              # Manual mode → prefer per-slug overrides, fall back to global.
+              if [ -f "automation/overrides-${SLUG}.json" ]; then
+                OVR_FILE="automation/overrides-${SLUG}.json"
+              elif [ -f "automation/overrides.json" ]; then
+                OVR_FILE="automation/overrides.json"
+              fi
             fi
+
             echo "OVERRIDES for ${SLUG}: ${OVR_FILE:-none}"
             [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
 
