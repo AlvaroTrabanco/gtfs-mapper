@@ -1,30 +1,38 @@
-  [
-    {
-      "slug": "flixbus",
-      "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/de-unknown-flixbus-gtfs-853.zip?alt=media",
-      "localPath": "",
-      "sourceType": "url",
-      "autoSpanishOverrides": false,
-      "autoBorderOverrides": {
-        "enabled": true,
-        "countries": ["CH"],
-        "timezonesByCountry": {
-          "CH": ["Europe/Zurich"]
-        }
+[
+  {
+    "slug": "flixbus",
+    "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/de-unknown-flixbus-gtfs-853.zip?alt=media",
+    "localPath": "",
+    "sourceType": "url",
+    "autoSpanishOverrides": true,
+    "autoBorderOverrides": {
+      "enabled": true,
+      "countries": [
+        "CH",
+        "ES"
+      ],
+      "timezonesByCountry": {
+        "CH": [
+          "Europe/Zurich"
+        ],
+        "ES": [
+          "Europe/Madrid"
+        ]
       }
-    },
-    {
-      "slug": "ouibus",
-      "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/fr-ile-de-france-blablacar-bus-gtfs-1314.zip?alt=media",
-      "localPath": "",
-      "sourceType": "url",
-      "autoSpanishOverrides": true
-    },
-    {
-      "slug": "alsa",
-      "url": "",
-      "localPath": "feeds/alsa.zip",
-      "sourceType": "file",
-      "autoSpanishOverrides": false
     }
-  ]
+  },
+  {
+    "slug": "ouibus",
+    "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/fr-ile-de-france-blablacar-bus-gtfs-1314.zip?alt=media",
+    "localPath": "",
+    "sourceType": "url",
+    "autoSpanishOverrides": true
+  },
+  {
+    "slug": "alsa",
+    "url": "",
+    "localPath": "feeds/alsa.zip",
+    "sourceType": "file",
+    "autoSpanishOverrides": false
+  }
+]
