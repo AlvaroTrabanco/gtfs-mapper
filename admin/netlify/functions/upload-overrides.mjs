@@ -248,23 +248,28 @@ export const handler = async (event) => {
 
       const existingABO = current.autoBorderOverrides || {};
 
-      // Normalize incoming values
+      // Treat autoBorderEnabled as optional in the request
+      const hasAutoBorderEnabledField = "autoBorderEnabled" in body;
       const boolAutoBorderEnabled = !!autoBorderEnabled;
-      const boolAutoSpanishOverrides = !!autoSpanishOverrides;
 
       const newCountries = Array.isArray(countries)
         ? countries
         : existingABO.countries || [];
 
-      const newTzByCountry =
-        timezonesByCountry && typeof timezonesByCountry === "object"
-          ? timezonesByCountry
-          : existingABO.timezonesByCountry || {};
+      let enabled = existingABO.enabled;
+      if (hasAutoBorderEnabledField) {
+        enabled = boolAutoBorderEnabled;
+      } else if (Array.isArray(countries)) {
+        // If caller changed countries but didn't say anything about 'enabled',
+        // infer enabled = (countries.length > 0)
+        enabled = countries.length > 0;
+      }
 
       current.autoSpanishOverrides = boolAutoSpanishOverrides;
+
       current.autoBorderOverrides = {
         ...existingABO,
-        enabled: boolAutoBorderEnabled,
+        enabled,
         countries: newCountries,
         timezonesByCountry: newTzByCountry,
       };

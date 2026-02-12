@@ -113,7 +113,14 @@ jobs:
               if (!x || typeof x !== "object") return null;
 
               const abo = x.autoBorderOverrides || {};
-              const autoBorderEnabled = !!abo.enabled;
+              const hasCountries =
+                Array.isArray(abo.countries) && abo.countries.length > 0;
+
+              // Border is considered enabled if either:
+              // - the explicit flag is true, OR
+              // - there are countries listed (your intuitive expectation)
+              const autoBorderEnabled =
+                !!abo.enabled || hasCountries;
 
               return {
                 slug: x.slug,
