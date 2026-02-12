@@ -69,11 +69,11 @@ jobs:
           set -euo pipefail
           mkdir -p site
 
-          # Build TSV: slug \t url \t localPath \t autoFlag \t countriesCsv
           # Build TSV: slug \t url \t localPath \t autoFlag \t countriesCsv \t tzMapJson
           if [ ! -f automation/feeds.json ]; then
             echo "ERROR: gtfs-mapper/automation/feeds.json not found"; exit 1
           fi
+
           node -e '
             const fs = require("fs");
             const raw = JSON.parse(fs.readFileSync("automation/feeds.json","utf8"));
@@ -132,6 +132,7 @@ jobs:
               console.log(cols.join("\t"));
             }
           ' > feeds.tsv
+
           # Save slugs for registry/admin
           cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
@@ -188,7 +189,6 @@ jobs:
             TZ_MAP_JSON=""
 
             for val in "$COL3" "$COL4" "$COL5" "$COL6"; do
-              # Skip empty
               [ -z "${val}" ] && continue
 
               # tzMapJson: JSON object like {"CH":["Europe/Zurich"]}
@@ -197,26 +197,25 @@ jobs:
                 continue
               fi
 
-              # autoFlag: "1" (we don’t really expect "0", but keep for safety)
+              # autoFlag: "1" or "0"
               if [ -z "${AUTO_FLAG}" ] && { [ "${val}" = "1" ] || [ "${val}" = "0" ]; }; then
                 AUTO_FLAG="${val}"
                 continue
               fi
 
-              # countriesCsv: comma-separated 2-letter uppercase codes (ES,CH,FR,…)
+              # countriesCsv: comma-separated 2-letter uppercase codes
               if [ -z "${COUNTRIES}" ] && [[ "${val}" =~ ^[A-Z]{2}(,[A-Z]{2})*$ ]]; then
                 COUNTRIES="${val}"
                 continue
               fi
 
-              # localPath: has a slash or ends with .zip
+              # localPath: looks like a path or zip filename
               if [ -z "${LOCAL_PATH}" ] && { [[ "${val}" == *"/"* ]] || [[ "${val}" == *.zip ]]; }; then
                 LOCAL_PATH="${val}"
                 continue
               fi
             done
 
-            # Defaults
             [ -z "${TZ_MAP_JSON}" ] && TZ_MAP_JSON="{}"
 
             echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' AUTO_FLAG='${AUTO_FLAG}' COUNTRIES='${COUNTRIES}' TZ_MAP_JSON='${TZ_MAP_JSON}'"
@@ -257,9 +256,7 @@ jobs:
             fi
 
             echo "EFFECTIVE_URL='${EFFECTIVE_URL}' EFFECTIVE_LOCAL='${EFFECTIVE_LOCAL}'"
-            ...
 
-            # Optional: keep headers/download debug page
             URL_DISPLAY="${EFFECTIVE_URL:-}"
             LOCAL_NOTE=""
 
@@ -284,7 +281,6 @@ jobs:
               # LOCAL FILE MODE (no remote URL, rely on repo file)
               URL_DISPLAY="(local file: ${EFFECTIVE_LOCAL})"
               LOCAL_NOTE='<em>Using local GTFS from repo</em>'
-              # Optional: expose the local zip for download/debug
               if [ -f "automation/${EFFECTIVE_LOCAL}" ]; then
                 cp "automation/${EFFECTIVE_LOCAL}" "site/${SLUG}/gtfs.zip" || true
               else
@@ -346,7 +342,7 @@ jobs:
               fi
             fi
 
-            # Per-feed index (unchanged)
+            # Per-feed index
             INDEX_HTML='<!doctype html><meta charset="utf-8">
             <title>{{TITLE}}</title>
             <h1>{{TITLE}}</h1>
