@@ -1,397 +1,305 @@
 #!/usr/bin/env python3
 """
-Analyze Spanish country mismatches for all feeds marked autoSpanishOverrides.
+Multi-country border analyser for GTFS stops.
 
-- Reads:
-    automation/feeds.json
-    automation/spain.kml          # Spain polygon(s) in KML
-    site/<slug>/gtfs.zip          # built/downloaded GTFS per feed, if present
-    (fallback) downloads GTFS from feeds.json URL or copies from localPath.
+- Reads automation/feeds.json
+- For each feed with autoBorderOverrides.enabled:
+  - Reads site/<slug>/gtfs.zip
+  - Looks at stops.txt (stop_lat, stop_lon, stop_timezone/stop_tz)
+  - Uses autoBorderOverrides.timezonesByCountry + a base map
+    to infer timezone-country.
+  - Loads KML for each configured border country from automation/<CC>.kml
+    (e.g. automation/ES.kml, automation/CH.kml)
+  - If a stop is inside the country polygon(s):
 
-- For each feed where autoSpanishOverrides === true:
-    * Ensure a GTFS zip exists (site/<slug>/gtfs.zip or freshly downloaded)
-    * Read stops.txt
-    * For each stop:
-        - Determine if coordinates fall inside the Spain polygon(s)
-        - Map stop_timezone -> timezone_country (ES/FR/PT/UNKNOWN)
-        - If either:
-            - timezone_country == "ES"  XOR  in_spain_polygon is True
-          then record a mismatch.
+    * If timezone is missing:
+        -> add entry to "needsManualReview"
+           (slug, stop_id, lat, lon, country, reason="inside_kml_no_timezone")
 
-- Writes:
-    automation/spanish-country-mismatches.json
+    * If timezone-country != polygon-country:
+        -> add decisions["<slug>::<stop_id>"] = {
+               "newCountry": polygonCountry,
+               "oldCountry": tzCountry,
+               "timezone": tz,
+               "reason": "kml_tz_mismatch"
+           }
 
-JSON shape:
-{
-  "generatedAt": "...",
-  "feeds": {
-    "<slug>": [
-      {
-        "stop_id": "...",
-        "stop_name": "...",
-        "stop_lat": 43.3511,
-        "stop_lon": -1.7833,
-        "stop_timezone": "Europe/Paris",
-        "timezone_country": "FR",
-        "geo_country": "ES",
-        "in_spain_polygon": true,
-        "mismatch_type": "NON_ES_TZ_INSIDE_SP",
-        "reason": "Lat/Lon in Spain but timezone maps to non-ES country."
-      },
-      ...
-    ]
-  }
-}
+Outputs:
+  automation/spanish-country-decisions.json
+
+This file is consumed by rebuild-gtfs.js as a generic "border decisions" JSON.
 """
 
-from __future__ import annotations
-
 import csv
-import io
 import json
-import shutil
-import urllib.request
+import os
 import zipfile
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from xml.etree import ElementTree as ET
 
-# ---- project paths ---------------------------------------------------------
+ROOT = Path(__file__).resolve().parent.parent  # gtfs-mapper/
+AUTOMATION = ROOT / "automation"
 
-HERE = Path(__file__).resolve().parent               # gtfs-mapper/automation
-ROOT = HERE.parent                                   # gtfs-mapper/
-FEEDS_JSON = ROOT / "automation" / "feeds.json"
-SPAIN_KML = ROOT / "automation" / "spain.kml"
-SITE_DIR = ROOT / "site"
-OUT_JSON = HERE / "spanish-country-mismatches.json"  # automation/spanish-country-mismatches.json
+FEEDS_JSON = AUTOMATION / "feeds.json"
+DECISIONS_JSON = AUTOMATION / "spanish-country-decisions.json"  # path already used by JS
 
-# ---- timezone → country mapping --------------------------------------------
-
-TZ_TO_COUNTRY = {
+# Simple base timezone -> country mapping (fallback)
+BASE_TZ_TO_COUNTRY = {
     "Europe/Madrid": "ES",
     "Atlantic/Canary": "ES",
     "Europe/Paris": "FR",
     "Europe/Lisbon": "PT",
-    # extend if needed (e.g. "Europe/London": "GB", ...)
+    "Europe/Zurich": "CH",
+    "Europe/Berlin": "DE",
+    "Europe/Rome": "IT",
 }
 
 
-def tz_to_country(tz: str | None) -> str:
-    if not tz:
-        return "UNKNOWN"
-    return TZ_TO_COUNTRY.get(tz.strip(), "UNKNOWN")
+def load_feeds():
+    with FEEDS_JSON.open("r", encoding="utf-8") as f:
+        raw = json.load(f)
+    return raw if isinstance(raw, list) else raw.get("feeds", [])
 
 
-# ---- point-in-polygon (KML) -----------------------------------------------
-
-def load_spain_polygons(kml_path: Path) -> List[List[Tuple[float, float]]]:
+def build_tz_map_for_feed(feed):
     """
-    Parse Spain polygons from a KML file.
-
-    Returns a list of polygons; each polygon is a list of (lon, lat) pairs.
+    Build timezone->country map for this feed from autoBorderOverrides.timezonesByCountry
+    plus the global base map.
     """
+    tz_map = dict(BASE_TZ_TO_COUNTRY)
+    abo = feed.get("autoBorderOverrides") or {}
+    by_country = abo.get("timezonesByCountry") or {}
+    for country, tz_list in by_country.items():
+        if not isinstance(tz_list, list):
+            continue
+        cc = str(country or "").strip().upper()
+        for tz in tz_list:
+            if not tz:
+                continue
+            tz_map[str(tz).strip()] = cc
+    return tz_map
+
+
+def load_kml_polygons_for_country(country_code):
+    """
+    Load polygons from automation/<CC>.kml (CC = country code, e.g. ES, CH).
+    Returns a list of polygons, each polygon = list[(lon, lat), ...].
+    If file missing, returns [].
+    """
+    cc = country_code.upper()
+    kml_path = AUTOMATION / f"{cc}.kml"
     if not kml_path.exists():
-        raise SystemExit(f"[error] Spain KML not found at {kml_path}")
+        print(f"[KML] No KML file for country {cc}: {kml_path} (skipping)")
+        return []
 
-    tree = ET.parse(kml_path)
+    print(f"[KML] Loading KML for {cc}: {kml_path}")
+    tree = ET.parse(str(kml_path))
     root = tree.getroot()
 
-    # KML namespace
-    ns = {"kml": "http://www.opengis.net/kml/2.2"}
+    # KML namespaces are annoying; detect ns if present
+    ns = {}
+    if root.tag.startswith("{"):
+        uri = root.tag.split("}", 1)[0].strip("{")
+        ns["k"] = uri
+    else:
+        ns["k"] = ""
 
-    polys: List[List[Tuple[float, float]]] = []
+    def findall(path):
+        if ns["k"]:
+            return root.findall(path.format(k=ns["k"]))
+        else:
+            return root.findall(path.replace("{k}", ""))
 
-    # Grab all <coordinates> inside <Polygon> elements
-    for coords_el in root.findall(".//kml:Polygon//kml:coordinates", ns):
-        text = coords_el.text or ""
-        parts = text.strip().split()
-        pts: List[Tuple[float, float]] = []
-        for p in parts:
-            # lon,lat,alt
-            bits = p.split(",")
-            if len(bits) < 2:
+    polygons = []
+
+    # Look for <Polygon><outerBoundaryIs><LinearRing><coordinates>...</coordinates>
+    for coords_node in findall(".//{k}coordinates"):
+        text = coords_node.text or ""
+        coords = []
+        for token in text.strip().split():
+            # format: lon,lat[,alt]
+            parts = token.split(",")
+            if len(parts) < 2:
                 continue
             try:
-                lon = float(bits[0])
-                lat = float(bits[1])
+                lon = float(parts[0])
+                lat = float(parts[1])
             except ValueError:
                 continue
-            pts.append((lon, lat))
-        if len(pts) >= 3:
-            polys.append(pts)
+            coords.append((lon, lat))
+        if len(coords) >= 3:
+            polygons.append(coords)
 
-    if not polys:
-        raise SystemExit("[error] No polygons found inside spain.kml")
-
-    return polys
+    print(f"[KML] Loaded {len(polygons)} polygon(s) for {cc}")
+    return polygons
 
 
-def point_in_poly(lon: float, lat: float, poly: List[Tuple[float, float]]) -> bool:
+def point_in_poly(lon, lat, poly):
     """
-    Standard ray-casting point-in-polygon (lon,lat), treating polygon as closed.
+    Standard ray-casting point-in-polygon for (lon,lat).
+    poly = list of (lon,lat).
     """
     inside = False
     n = len(poly)
     if n < 3:
         return False
 
-    x = lon
-    y = lat
-
-    x0, y0 = poly[0]
-    for i in range(1, n + 1):
-        x1, y1 = poly[i % n]
-
-        # Edge crosses horizontal ray?
-        if ((y0 > y) != (y1 > y)) and (x <= max(x0, x1)):
-            # Avoid division by zero for vertical segments
-            denom = (y1 - y0) if (y1 != y0) else 1e-12
-            x_intersect = x0 + (y - y0) * (x1 - x0) / denom
-            if x_intersect >= x:
+    x, y = lon, lat
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        # Check if edge crosses the horizontal ray
+        if ((y1 > y) != (y2 > y)):
+            # Compute x of intersection of edge with the ray at y
+            try:
+                x_intersect = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            except ZeroDivisionError:
+                x_intersect = x1
+            if x_intersect > x:
                 inside = not inside
-
-        x0, y0 = x1, y1
-
     return inside
 
 
-def point_in_spain(lon: float, lat: float, polygons: List[List[Tuple[float, float]]]) -> bool:
+def point_in_any(lon, lat, polygons):
+    """Return True if point lies in any of the polygons."""
     for poly in polygons:
         if point_in_poly(lon, lat, poly):
             return True
     return False
 
 
-# ---- feeds + GTFS helpers --------------------------------------------------
-
-def load_feeds_with_auto_flag() -> List[Dict[str, Any]]:
-    """
-    Parse automation/feeds.json and return normalized records with:
-        {
-          "slug": str,
-          "autoSpanishOverrides": bool,
-          "url": str,
-          "localPath": str
-        }
-    """
-    if not FEEDS_JSON.exists():
-        raise SystemExit(f"[error] feeds.json not found at {FEEDS_JSON}")
-
-    raw = json.loads(FEEDS_JSON.read_text(encoding="utf-8"))
-
-    if isinstance(raw, list):
-        feeds_raw = raw
-    elif isinstance(raw, dict) and isinstance(raw.get("feeds"), list):
-        feeds_raw = raw["feeds"]
-    else:
-        feeds_raw = []
-
-    feeds: List[Dict[str, Any]] = []
-    for x in feeds_raw:
-        if isinstance(x, str):
-            feeds.append(
-                {
-                    "slug": x,
-                    "autoSpanishOverrides": False,
-                    "url": "",
-                    "localPath": "",
-                }
-            )
-            continue
-        if not isinstance(x, dict):
-            continue
-        slug = (x.get("slug") or "").strip()
-        if not slug:
-            continue
-        feeds.append(
-            {
-                "slug": slug,
-                "autoSpanishOverrides": bool(x.get("autoSpanishOverrides")),
-                "url": (x.get("url") or "").strip(),
-                "localPath": (x.get("localPath") or "").strip(),
-            }
-        )
-
-    return feeds
-
-
-def iter_stops_from_gtfs_zip(zip_path: Path):
-    """
-    Yield rows (dicts) from stops.txt inside the given GTFS zip.
-    """
-    if not zip_path.exists():
+def process_feed(feed, decisions, needs_review):
+    slug = feed.get("slug")
+    if not slug:
         return
 
-    with zipfile.ZipFile(zip_path, "r") as z:
-        try:
-            with z.open("stops.txt") as f:
-                text = io.TextIOWrapper(f, encoding="utf-8-sig", newline="")
-                reader = csv.DictReader(text)
-                for row in reader:
-                    yield row
-        except KeyError:
-            # no stops.txt
+    abo = feed.get("autoBorderOverrides") or {}
+    if not abo.get("enabled"):
+        return
+
+    countries = abo.get("countries") or []
+    countries = [str(c or "").strip().upper() for c in countries if c]
+
+    if not countries:
+        # nothing to do
+        return
+
+    tz_map = build_tz_map_for_feed(feed)
+
+    # KML polygons per country
+    country_polys = {
+        cc: load_kml_polygons_for_country(cc)
+        for cc in countries
+    }
+
+    # If all are empty, nothing to do
+    if not any(country_polys.values()):
+        return
+
+    # Read original GTFS for this feed from site/<slug>/gtfs.zip
+    gtfs_zip = ROOT / "site" / slug / "gtfs.zip"
+    if not gtfs_zip.exists():
+        print(f"[GTFS] No gtfs.zip for feed {slug} at {gtfs_zip} (skipping)")
+        return
+
+    print(f"[GTFS] Analysing stops for feed {slug} from {gtfs_zip}")
+
+    with zipfile.ZipFile(str(gtfs_zip), "r") as zf:
+        if "stops.txt" not in zf.namelist():
+            print(f"[GTFS] stops.txt missing in {gtfs_zip} (skipping)")
             return
 
+        with zf.open("stops.txt", "r") as f:
+            reader = csv.DictReader(
+                (line.decode("utf-8-sig") for line in f),
+                delimiter=","
+            )
 
-def ensure_gtfs_zip_for_feed(feed: Dict[str, Any]) -> Path | None:
-    """
-    Ensure we have site/<slug>/gtfs.zip for this feed.
+            for row in reader:
+                stop_id = (row.get("stop_id") or "").strip()
+                if not stop_id:
+                    continue
 
-    Order:
-      1) If site/<slug>/gtfs.zip exists, use it (CI case).
-      2) Else, if feed.url is http(s), download to site/<slug>/gtfs.zip.
-      3) Else, if feed.localPath is set and file exists, copy it there.
-      4) Else, return None.
-    """
-    slug = feed["slug"]
-    zip_path = SITE_DIR / slug / "gtfs.zip"
+                lat_raw = row.get("stop_lat")
+                lon_raw = row.get("stop_lon")
+                try:
+                    lat = float(lat_raw) if lat_raw not in (None, "") else None
+                    lon = float(lon_raw) if lon_raw not in (None, "") else None
+                except ValueError:
+                    lat = lon = None
 
-    # 1) Already present (CI / local build)
-    if zip_path.exists():
-        return zip_path
+                tz = (row.get("stop_timezone") or row.get("stop_tz") or "").strip()
 
-    url = (feed.get("url") or "").strip()
-    local_path = (feed.get("localPath") or "").strip()
+                if lat is None or lon is None:
+                    continue  # cannot do KML checks
 
-    zip_path.parent.mkdir(parents=True, exist_ok=True)
+                # For each border country, check if the stop lies in its polygon(s)
+                for cc, polys in country_polys.items():
+                    if not polys:
+                        continue
+                    inside = point_in_any(lon, lat, polys)
+                    if not inside:
+                        continue
 
-    # 2) Try remote URL
-    if url.startswith("http://") or url.startswith("https://"):
-        print(f"[info] Downloading GTFS for '{slug}' from {url} ...")
-        try:
-            with urllib.request.urlopen(url) as resp, open(zip_path, "wb") as out:
-                shutil.copyfileobj(resp, out)
-            print(f"[info] Saved GTFS to {zip_path}")
-            return zip_path
-        except Exception as e:
-            print(f"[warn] Failed to download GTFS for '{slug}' from {url}: {e}")
+                    # The stop lies inside cc's geometry
+                    if not tz:
+                        # 1) NO TIMEZONE but inside KML -> manual review
+                        needs_review.append({
+                            "slug": slug,
+                            "stop_id": stop_id,
+                            "lat": lat,
+                            "lon": lon,
+                            "country": cc,
+                            "reason": "inside_kml_no_timezone",
+                        })
+                        continue
 
-    # 3) Try localPath (relative to automation/ or repo root)
-    if local_path:
-        rel_candidate = HERE / local_path
-        if not rel_candidate.exists():
-            rel_candidate = ROOT / local_path
+                    tz_country = tz_map.get(tz, "UNKNOWN")
 
-        if rel_candidate.exists():
-            print(f"[info] Copying GTFS for '{slug}' from {rel_candidate} ...")
-            try:
-                shutil.copyfile(rel_candidate, zip_path)
-                print(f"[info] Copied GTFS to {zip_path}")
-                return zip_path
-            except Exception as e:
-                print(f"[warn] Failed to copy GTFS for '{slug}' from {rel_candidate}: {e}")
-        else:
-            print(f"[warn] localPath for '{slug}' does not exist: {rel_candidate}")
+                    if tz_country == cc:
+                        # timezone-country matches polygon country -> OK
+                        continue
 
-    # 4) Give up
-    print(f"[warn] No GTFS source available for '{slug}' (no site zip, no valid url/localPath).")
-    return None
-
-
-# ---- main analysis ---------------------------------------------------------
-
-def main() -> None:
-    print("[info] Loading Spain polygons ...")
-    polygons = load_spain_polygons(SPAIN_KML)
-    print(f"[info] Loaded {len(polygons)} polygon(s) from {SPAIN_KML}")
-
-    feeds = load_feeds_with_auto_flag()
-    auto_feeds = [f for f in feeds if f["autoSpanishOverrides"]]
-    print(f"[info] Feeds with autoSpanishOverrides=true: {[f['slug'] for f in auto_feeds]}")
-
-    mismatches_by_slug: Dict[str, List[Dict[str, Any]]] = {}
-    total_mismatches = 0
-
-    for feed in auto_feeds:
-        slug = feed["slug"]
-
-        # Ensure we have a GTFS zip (either from site/ or freshly fetched)
-        zip_path = ensure_gtfs_zip_for_feed(feed)
-        if not zip_path or not zip_path.exists():
-            print(f"[warn] GTFS zip not available for '{slug}'; skipping")
-            continue
-
-        print(f"[info] Analyzing Spanish country mismatches for feed '{slug}' using {zip_path} ...")
-
-        mismatches: List[Dict[str, Any]] = []
-        checked = 0
-
-        for row in iter_stops_from_gtfs_zip(zip_path):
-            stop_id = (row.get("stop_id") or "").strip()
-            stop_name = (row.get("stop_name") or "").strip()
-
-            try:
-                lat = float(row.get("stop_lat") or "")
-                lon = float(row.get("stop_lon") or "")
-            except (TypeError, ValueError):
-                continue
-
-            tz_raw = (row.get("stop_timezone") or "").strip()
-            tz_country = tz_to_country(tz_raw)
-
-            in_spain = point_in_spain(lon, lat, polygons)
-            checked += 1
-
-            # We only care about Spanish context:
-            #  - stops that are inside Spain polygon OR have Spanish timezone.
-            is_spanish_candidate = in_spain or (tz_country == "ES")
-            if not is_spanish_candidate:
-                continue
-
-            mismatch_type = None
-            if tz_country == "ES" and not in_spain:
-                mismatch_type = "TZ_ES_OUTSIDE_SP"
-            elif in_spain and tz_country not in ("ES", "UNKNOWN"):
-                mismatch_type = "NON_ES_TZ_INSIDE_SP"
-            elif in_spain and tz_country == "UNKNOWN":
-                mismatch_type = "UNKNOWN_TZ_INSIDE_SP"
-
-            if mismatch_type:
-                # Human-readable reason for the Admin UI
-                if mismatch_type == "TZ_ES_OUTSIDE_SP":
-                    reason = "Timezone country is ES but geometry is outside Spain polygon."
-                elif mismatch_type == "NON_ES_TZ_INSIDE_SP":
-                    reason = "Lat/Lon in Spain but timezone maps to non-ES country."
-                elif mismatch_type == "UNKNOWN_TZ_INSIDE_SP":
-                    reason = "Lat/Lon in Spain but timezone is missing or unmapped."
-                else:
-                    reason = ""
-
-                mismatches.append(
-                    {
-                        "stop_id": stop_id,
-                        "stop_name": stop_name,
-                        # Admin expects these exact keys:
-                        "stop_lat": lat,
-                        "stop_lon": lon,
-                        "stop_timezone": tz_raw or "",
-                        "timezone_country": tz_country,
-                        # For display / semantics:
-                        "geo_country": "ES" if in_spain else "",
-                        # Extra debug fields:
-                        "in_spain_polygon": in_spain,
-                        "mismatch_type": mismatch_type,
-                        "reason": reason,
+                    # 2) Timezone-country != polygon-country -> add decision
+                    key = f"{slug}::{stop_id}"
+                    decisions[key] = {
+                        "newCountry": cc,
+                        "oldCountry": tz_country,
+                        "timezone": tz,
+                        "lat": lat,
+                        "lon": lon,
+                        "reason": "kml_tz_mismatch",
                     }
-                )
 
-        if mismatches:
-            mismatches_by_slug[slug] = mismatches
-            total_mismatches += len(mismatches)
-            print(f"  -> {len(mismatches)} mismatches for {slug} (checked {checked} stops)")
-        else:
-            print(f"  -> no mismatches for {slug} (checked {checked} stops)")
 
-    OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-    out_obj = {
-        "generatedAt": __import__("datetime").datetime.utcnow().isoformat() + "Z",
-        "feeds": mismatches_by_slug,
+def main():
+    if not FEEDS_JSON.exists():
+        print(f"ERROR: {FEEDS_JSON} not found")
+        return
+
+    feeds = load_feeds()
+
+    # decisions: { "<slug>::<stop_id>": { newCountry, ... } }
+    decisions = {}
+    needs_review = []
+
+    for feed in feeds:
+        if isinstance(feed, str):
+            # not an object; ignore
+            continue
+        process_feed(feed, decisions, needs_review)
+
+    out = {
+        "decisions": decisions,
+        "needsManualReview": needs_review,
     }
-    OUT_JSON.write_text(json.dumps(out_obj, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"[ok] Wrote Spanish country mismatch report to {OUT_JSON}")
-    print(f"[ok] Total mismatches: {total_mismatches}")
+    DECISIONS_JSON.parent.mkdir(parents=True, exist_ok=True)
+    with DECISIONS_JSON.open("w", encoding="utf-8") as f:
+        json.dump(out, f, indent=2, sort_keys=True)
+    print(f"Wrote decisions to {DECISIONS_JSON}")
+    print(f"  total decisions: {len(decisions)}")
+    print(f"  needsManualReview: {len(needs_review)}")
 
 
 if __name__ == "__main__":
