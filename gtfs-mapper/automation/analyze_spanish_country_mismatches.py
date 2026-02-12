@@ -84,7 +84,9 @@ def load_kml_polygons_for_country(country_code):
     """
     Load polygons from automation/<CC>.kml (CC = country code, e.g. ES, CH).
     Returns a list of polygons, each polygon = list[(lon, lat), ...].
-    If file missing, returns [].
+
+    We deliberately ignore XML namespaces and just look for any element
+    whose tag ends with 'coordinates'.
     """
     cc = country_code.upper()
     kml_path = AUTOMATION / f"{cc}.kml"
@@ -96,28 +98,19 @@ def load_kml_polygons_for_country(country_code):
     tree = ET.parse(str(kml_path))
     root = tree.getroot()
 
-    # KML namespaces are annoying; detect ns if present
-    ns = {}
-    if root.tag.startswith("{"):
-        uri = root.tag.split("}", 1)[0].strip("{")
-        ns["k"] = uri
-    else:
-        ns["k"] = ""
-
-    def findall(path):
-        if ns["k"]:
-            return root.findall(path.format(k=ns["k"]))
-        else:
-            return root.findall(path.replace("{k}", ""))
-
     polygons = []
 
-    # Look for <Polygon><outerBoundaryIs><LinearRing><coordinates>...</coordinates>
-    for coords_node in findall(".//{k}coordinates"):
+    # Iterate through all elements; pick those whose tag ends with 'coordinates'
+    for coords_node in root.iter():
+        tag = coords_node.tag
+        # Handles tags like '{http://www.opengis.net/kml/2.2}coordinates'
+        if not str(tag).lower().endswith("coordinates"):
+            continue
+
         text = coords_node.text or ""
         coords = []
         for token in text.strip().split():
-            # format: lon,lat[,alt]
+            # KML format: lon,lat[,alt]
             parts = token.split(",")
             if len(parts) < 2:
                 continue
@@ -127,6 +120,7 @@ def load_kml_polygons_for_country(country_code):
             except ValueError:
                 continue
             coords.append((lon, lat))
+
         if len(coords) >= 3:
             polygons.append(coords)
 
