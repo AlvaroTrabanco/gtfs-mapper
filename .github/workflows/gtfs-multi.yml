@@ -176,12 +176,50 @@ jobs:
               return 3
             fi
           }
-            
+
           any_fail=0
-          while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON; do
+          while IFS=$'\t' read -r SLUG URL COL3 COL4 COL5 COL6; do
             [ -z "${SLUG:-}" ] && continue
 
-            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' COUNTRIES='${COUNTRIES}'"
+            # We no longer trust column order. Infer meaning by value shape.
+            AUTO_FLAG=""
+            LOCAL_PATH=""
+            COUNTRIES=""
+            TZ_MAP_JSON=""
+
+            for val in "$COL3" "$COL4" "$COL5" "$COL6"; do
+              # Skip empty
+              [ -z "${val}" ] && continue
+
+              # tzMapJson: JSON object like {"CH":["Europe/Zurich"]}
+              if [ -z "${TZ_MAP_JSON}" ] && [[ "${val}" == \{* ]] && [[ "${val}" == *:* ]]; then
+                TZ_MAP_JSON="${val}"
+                continue
+              fi
+
+              # autoFlag: "1" (we don’t really expect "0", but keep for safety)
+              if [ -z "${AUTO_FLAG}" ] && { [ "${val}" = "1" ] || [ "${val}" = "0" ]; }; then
+                AUTO_FLAG="${val}"
+                continue
+              fi
+
+              # countriesCsv: comma-separated 2-letter uppercase codes (ES,CH,FR,…)
+              if [ -z "${COUNTRIES}" ] && [[ "${val}" =~ ^[A-Z]{2}(,[A-Z]{2})*$ ]]; then
+                COUNTRIES="${val}"
+                continue
+              fi
+
+              # localPath: has a slash or ends with .zip
+              if [ -z "${LOCAL_PATH}" ] && { [[ "${val}" == *"/"* ]] || [[ "${val}" == *.zip ]]; }; then
+                LOCAL_PATH="${val}"
+                continue
+              fi
+            done
+
+            # Defaults
+            [ -z "${TZ_MAP_JSON}" ] && TZ_MAP_JSON="{}"
+
+            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' AUTO_FLAG='${AUTO_FLAG}' COUNTRIES='${COUNTRIES}' TZ_MAP_JSON='${TZ_MAP_JSON}'"
             echo "[border-env] FEED_SLUG = ${SLUG}"
             echo "[border-env] process.env.BORDER_COUNTRIES (raw) = ${COUNTRIES:-<empty>}"
             echo "[border-env] process.env.BORDER_TZ_MAP_JSON (raw) = ${TZ_MAP_JSON:-<empty>}"
@@ -209,9 +247,6 @@ jobs:
             mkdir -p "site/${SLUG}"
 
             # Decide effective source for this feed:
-            # - If URL is http(s) => remote feed (EFFECTIVE_URL)
-            # - Else if URL is non-empty and LOCAL_PATH is empty => treat URL as local path
-            # - Else use LOCAL_PATH as local path
             EFFECTIVE_URL=""
             EFFECTIVE_LOCAL="${LOCAL_PATH:-}"
 
@@ -222,6 +257,7 @@ jobs:
             fi
 
             echo "EFFECTIVE_URL='${EFFECTIVE_URL}' EFFECTIVE_LOCAL='${EFFECTIVE_LOCAL}'"
+            ...
 
             # Optional: keep headers/download debug page
             URL_DISPLAY="${EFFECTIVE_URL:-}"
