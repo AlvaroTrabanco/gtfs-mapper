@@ -176,19 +176,17 @@ jobs:
               return 3
             fi
           }
-
+            
           any_fail=0
-            while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON; do
-              [ -z "${SLUG:-}" ] && continue
+          while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON; do
+            [ -z "${SLUG:-}" ] && continue
 
-              # LOCAL_PATH is already the third column in feeds.tsv
-              # COUNTRIES is already the fifth column in feeds.tsv
-              echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' COUNTRIES='${COUNTRIES}'"
-              echo "[border-env] FEED_SLUG = ${SLUG}"
-              echo "[border-env] process.env.BORDER_COUNTRIES (raw) = ${COUNTRIES:-<empty>}"
-              echo "[border-env] process.env.BORDER_TZ_MAP_JSON (raw) = ${TZ_MAP_JSON:-<empty>}"
+            echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' COUNTRIES='${COUNTRIES}'"
+            echo "[border-env] FEED_SLUG = ${SLUG}"
+            echo "[border-env] process.env.BORDER_COUNTRIES (raw) = ${COUNTRIES:-<empty>}"
+            echo "[border-env] process.env.BORDER_TZ_MAP_JSON (raw) = ${TZ_MAP_JSON:-<empty>}"
 
-            # Decide whether to enable Spanish auto overrides:
+            # Decide whether to enable Spain-specific auto overrides
             AUTO_SPANISH_OVERRIDES_ENV=""
 
             # Backwards-compat: if autoFlag is 1 and there is *no* autoBorderOverrides.countries,
@@ -204,7 +202,7 @@ jobs:
 
             echo "AUTO_SPANISH_OVERRIDES for ${SLUG}: ${AUTO_SPANISH_OVERRIDES_ENV:-false}"
 
-            # New: generic border-country config
+            # Border-mode envs passed to rebuild-gtfs.js
             BORDER_COUNTRIES_ENV="${COUNTRIES}"
             BORDER_TZ_MAP_JSON_ENV="${TZ_MAP_JSON}"
 
@@ -220,7 +218,6 @@ jobs:
             if [[ "${URL:-}" =~ ^https?:// ]]; then
               EFFECTIVE_URL="${URL}"
             elif [ -n "${URL:-}" ] && [ -z "${EFFECTIVE_LOCAL}" ]; then
-              # e.g. URL="feeds/alsa.zip" with no localPath set in feeds.json
               EFFECTIVE_LOCAL="${URL}"
             fi
 
@@ -276,8 +273,6 @@ jobs:
             echo "OVERRIDES for ${SLUG}: ${OVR_FILE:-none}"
             [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
 
-
-
             run_builder() {
               if [ -n "${OVR_FILE}" ]; then
                 AUTO_SPANISH_OVERRIDES="${AUTO_SPANISH_OVERRIDES_ENV}" \
@@ -315,7 +310,7 @@ jobs:
               fi
             fi
 
-            # Per-feed index (no heredoc)
+            # Per-feed index (unchanged)
             INDEX_HTML='<!doctype html><meta charset="utf-8">
             <title>{{TITLE}}</title>
             <h1>{{TITLE}}</h1>
