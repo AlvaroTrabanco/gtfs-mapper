@@ -184,7 +184,7 @@ jobs:
             fi
           }
 
-                    any_fail=0
+          any_fail=0
           # feeds.tsv columns (fully under our control):
           # 1: SLUG
           # 2: URL
@@ -196,7 +196,21 @@ jobs:
           while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON BORDER_ENABLED; do
             [ -z "${SLUG:-}" ] && continue
 
-            [ -z "${TZ_MAP_JSON:-}" ] && TZ_MAP_JSON="{}"
+            # --- NORMALISE SENTINEL VALUES FROM feeds.json / admin UI ---
+            # Some fields can come through as "{}" (object) or "null".
+            # Treat those as "empty" so they don't break path logic.
+            if [ "${LOCAL_PATH}" = "{}" ] || [ "${LOCAL_PATH}" = "null" ]; then
+              LOCAL_PATH=""
+            fi
+
+            if [ "${URL}" = "{}" ] || [ "${URL}" = "null" ]; then
+              URL=""
+            fi
+
+            if [ -z "${TZ_MAP_JSON:-}" ] || [ "${TZ_MAP_JSON}" = "null" ]; then
+              TZ_MAP_JSON="{}"
+            fi
+            # ------------------------------------------------------------
 
             echo "SLUG=${SLUG} URL='${URL}' LOCAL_PATH='${LOCAL_PATH}' AUTO_FLAG='${AUTO_FLAG}' COUNTRIES='${COUNTRIES}' TZ_MAP_JSON='${TZ_MAP_JSON}' BORDER_ENABLED='${BORDER_ENABLED}'"
             echo "[border-env] FEED_SLUG = ${SLUG}"
