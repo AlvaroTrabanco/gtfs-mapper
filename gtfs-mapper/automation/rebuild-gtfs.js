@@ -41,6 +41,14 @@ const BORDER_COUNTRIES = (process.env.BORDER_COUNTRIES || "")
   .map((s) => s.trim())
   .filter(Boolean);
 
+
+
+// Add this debug block:
+console.log("[border-env] FEED_SLUG =", SLUG);
+console.log("[border-env] process.env.BORDER_COUNTRIES =", process.env.BORDER_COUNTRIES || "(none)");
+console.log("[border-env] parsed BORDER_COUNTRIES =", BORDER_COUNTRIES);
+console.log("[border-env] process.env.BORDER_TZ_MAP_JSON =", process.env.BORDER_TZ_MAP_JSON || "(none)");
+
 /* -------------------------- overrides / border auto-discovery ------------ */
 // Base timezone → country mapping (fallback)
 const BASE_TZ_TO_COUNTRY = {
@@ -612,6 +620,15 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
 
     const borderModeEnabled =
       (BORDER_COUNTRIES && BORDER_COUNTRIES.length > 0) || AUTO_SPANISH_OVERRIDES;
+
+
+    console.log(
+      "[border-mode]",
+      "slug =", SLUG,
+      "| borderModeEnabled =", borderModeEnabled,
+      "| BORDER_COUNTRIES =", BORDER_COUNTRIES,
+      "| AUTO_SPANISH_OVERRIDES =", AUTO_SPANISH_OVERRIDES
+    );
 
     if (borderModeEnabled) {
       // "By country" mode: ignore per-trip overrides and rely on
