@@ -740,22 +740,42 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       compileTripsWithOD({ trips, stop_times: stopTimes }, restrictions);
 
     // ---------------- routesAffected (by route_id) -----------------
-    // METRICS.trips.touched contains trip_ids whose stop_times were changed
-    const touchedTripIds = METRICS.trips.touched;
+    // A route is considered "affected" if any of its trips:
+    //   - has non-zero pickup/drop_off_type on any stop_time, OR
+    //   - has been split into __segA/__segB/__bridge.
+    const tripToRoute = new Map();
+    for (const tr of trips) {
+      if (!tr.trip_id) continue;
+      tripToRoute.set(String(tr.trip_id), tr.route_id ?? "");
+    }
+
     const affectedRouteIdSet = new Set();
 
-    for (const tr of trips) {
-      if (touchedTripIds.has(tr.trip_id)) {
-        const rid = tr.route_id;
-        if (rid != null && rid !== "") {
-          affectedRouteIdSet.add(String(rid));
-        }
+    for (const st of outStopTimes) {
+      const pickup = st.pickup_type ?? 0;
+      const dropoff = st.drop_off_type ?? 0;
+      const tripIdStr = String(st.trip_id ?? "");
+
+      const hasFlags = pickup !== 0 || dropoff !== 0;
+      const isSegment =
+        tripIdStr.includes("__seg") || tripIdStr.endsWith("__bridge");
+
+      if (!hasFlags && !isSegment) continue;
+
+      // Map segA/segB/bridge back to the original trip_id
+      const baseTripId = tripIdStr.split("__")[0];
+      const routeId = tripToRoute.get(baseTripId);
+      if (routeId != null && routeId !== "") {
+        affectedRouteIdSet.add(String(routeId));
       }
     }
 
     // Sorted for stability (numeric-ish sort)
     const routesAffected = Array.from(affectedRouteIdSet).sort((a, b) =>
-      String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" })
+      String(a).localeCompare(String(b), "en", {
+        numeric: true,
+        sensitivity: "base",
+      })
     );
 
     // ---------------- debug samples -----------------
@@ -827,7 +847,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       drop_off_type: st.drop_off_type ?? 0
     })), ["trip_id","arrival_time","departure_time","stop_id","stop_sequence","pickup_type","drop_off_type"]));
 
-    // Build ZIP buffer (this was missing in your current file)
+    // Build ZIP buffer and write compiled GTFS
     const blob = await outZip.generateAsync({
       type: "nodebuffer",
       compression: "DEFLATE",
@@ -878,7 +898,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       stops: { touchedCount: METRICS.stops.touched.size },
       stopTimes: METRICS.stopTimes,
 
-      // NEW: routes affected by overrides / OD split
+      // routes whose GTFS actually changed
       routes: {
         affectedCount: routesAffected.length,
         affectedRouteIds: routesAffected,
