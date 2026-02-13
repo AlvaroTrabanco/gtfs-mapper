@@ -147,6 +147,12 @@ jobs:
             }
           ' > feeds.tsv
 
+          # DEBUG: show feeds.tsv and flixbus line
+          echo "=== DEBUG: feeds.tsv ==="
+          cat feeds.tsv
+          echo "=== DEBUG: flixbus line from feeds.tsv ==="
+          grep '^flixbus' feeds.tsv || echo "flixbus not found in feeds.tsv"
+
           # Save slugs for registry/admin
           cut -f1 feeds.tsv | grep -v "^[[:space:]]*$" > feeds.txt
 
