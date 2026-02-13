@@ -8,15 +8,11 @@
     "autoBorderOverrides": {
       "enabled": true,
       "countries": [
-        "CH",
-        "ES"
+        "CH"
       ],
       "timezonesByCountry": {
         "CH": [
           "Europe/Zurich"
-        ],
-        "ES": [
-          "Europe/Madrid"
         ]
       }
     }
