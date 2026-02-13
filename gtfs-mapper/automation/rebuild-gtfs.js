@@ -759,6 +759,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         pickup_type: st.pickup_type,
         drop_off_type: st.drop_off_type,
       }));
+      
 
     // NEW: compute affected route_ids based on touched trips
     const affectedRouteIds = (() => {
@@ -835,6 +836,37 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const outPath = path.join(OUT_DIR, OUT_ZIP);
     await fs.writeFile(outPath, blob);
     console.log("Wrote:", outPath);
+
+
+        // NEW: write gtfs_rules file based on affected routes
+    try {
+      // Allow overriding the feed name used in the rule file; fallback to slug.
+      const ruleFeedName = process.env.RULE_FEED_NAME || SLUG;
+
+      const rulesLines = [];
+      rulesLines.push(`| feed(name == "${ruleFeedName}")`);
+      rulesLines.push("{");
+
+      if (affectedRouteIds.length) {
+        rulesLines.push("    - route(");
+        affectedRouteIds.forEach((rid, idx) => {
+          const prefix = idx === 0 ? "        " : "        && ";
+          rulesLines.push(`${prefix}id != "${rid}"`);
+        });
+        rulesLines.push("    );");
+      } else {
+        rulesLines.push("    // No routes affected by overrides for this feed.");
+      }
+
+      rulesLines.push("}");
+
+      const rulesContent = rulesLines.join("\n");
+      const rulesFilePath = path.join(OUT_DIR, "gtfs_rules");
+      await fs.writeFile(rulesFilePath, rulesContent, "utf8");
+      console.log("Wrote rules:", rulesFilePath);
+    } catch (err) {
+      console.error("Failed to write gtfs_rules file:", err?.message || err);
+    }
     
 
     const report = {
@@ -847,7 +879,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       stops: { touchedCount: METRICS.stops.touched.size },
       stopTimes: METRICS.stopTimes,
 
-      // NEW: routes affected by any override / OD split
+      // NEW: routes affected by overrides / OD split
       routes: {
         affectedCount: affectedRouteIds.length,
         affectedRouteIds,
@@ -860,7 +892,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       overridesSource: effectiveOverridesSource || "",
       artifacts: { zip: path.join(OUT_DIR, OUT_ZIP) },
 
-      // NEW: debug info
+      // debug info
       debug: {
         sampleOverrides,
         modifiedStopTimesSample: modifiedSamples,

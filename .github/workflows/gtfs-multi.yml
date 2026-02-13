@@ -346,7 +346,18 @@ jobs:
             [ -n "${OVR_FILE}" ] && head -n 20 "${OVR_FILE}" || true
 
             run_builder() {
+              # Decide feed name used inside gtfs_rules:
+              # - default: use the SLUG
+              # - special case: flixbus -> de.flixbus.fixed
+              local RULE_NAME
+              if [ "${SLUG}" = "flixbus" ]; then
+                RULE_NAME="de.flixbus.fixed"
+              else
+                RULE_NAME="${SLUG}"
+              fi
+
               if [ -n "${OVR_FILE}" ]; then
+                RULE_FEED_NAME="${RULE_NAME}" \
                 AUTO_SPANISH_OVERRIDES="${AUTO_SPANISH_OVERRIDES_ENV}" \
                 SPANISH_DECISIONS="automation/spanish-country-decisions.json" \
                 BORDER_COUNTRIES="${BORDER_COUNTRIES_ENV}" \
@@ -360,6 +371,7 @@ jobs:
                 OVERRIDES="${OVR_FILE}" \
                 node automation/rebuild-gtfs.js
               else
+                RULE_FEED_NAME="${RULE_NAME}" \
                 AUTO_SPANISH_OVERRIDES="${AUTO_SPANISH_OVERRIDES_ENV}" \
                 SPANISH_DECISIONS="automation/spanish-country-decisions.json" \
                 BORDER_COUNTRIES="${BORDER_COUNTRIES_ENV}" \
@@ -388,6 +400,7 @@ jobs:
             <h1>{{TITLE}}</h1>
             <ul>
               <li><a href="compiled.zip">compiled.zip</a></li>
+              <li><a href="gtfs_rules">gtfs_rules</a></li>
               <li><a href="'"${URL_DISPLAY//\"/&quot;}"'">Original source URL</a></li>
               <li><a href="headers.txt">Response headers</a> (debug)</li>
               <li><a href="report.json">report.json</a></li>
