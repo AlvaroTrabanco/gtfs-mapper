@@ -739,7 +739,26 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const { trips: outTrips, stop_times: outStopTimes } =
       compileTripsWithOD({ trips, stop_times: stopTimes }, restrictions);
 
-    // Build a small sample of override rules and modified stop_times for debugging
+    // ---------------- routesAffected (by route_id) -----------------
+    // METRICS.trips.touched contains trip_ids whose stop_times were changed
+    const touchedTripIds = METRICS.trips.touched;
+    const affectedRouteIdSet = new Set();
+
+    for (const tr of trips) {
+      if (touchedTripIds.has(tr.trip_id)) {
+        const rid = tr.route_id;
+        if (rid != null && rid !== "") {
+          affectedRouteIdSet.add(String(rid));
+        }
+      }
+    }
+
+    // Sorted for stability (numeric-ish sort)
+    const routesAffected = Array.from(affectedRouteIdSet).sort((a, b) =>
+      String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" })
+    );
+
+    // ---------------- debug samples -----------------
     const restrictionEntries = Object.entries(restrictions);
     const sampleOverrides = restrictionEntries.slice(0, 20).map(([key, val]) => ({
       key,
@@ -748,7 +767,6 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       pickupOnlyTo: val.pickupOnlyTo,
     }));
 
-    // Sample some modified stop_times: those where pickup_type or drop_off_type != 0
     const modifiedSamples = outStopTimes
       .filter(st => (st.pickup_type ?? 0) !== 0 || (st.drop_off_type ?? 0) !== 0)
       .slice(0, 50)
@@ -759,28 +777,6 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         pickup_type: st.pickup_type,
         drop_off_type: st.drop_off_type,
       }));
-      
-
-    // NEW: compute affected route_ids based on touched trips
-    const affectedRouteIds = (() => {
-      // Map original trip_id -> route_id from the input trips table
-      const tripToRoute = new Map();
-      for (const tr of trips || []) {
-        if (!tr || !tr.trip_id) continue;
-        tripToRoute.set(String(tr.trip_id), tr.route_id);
-      }
-
-      const routesSet = new Set();
-      for (const tid of METRICS.trips.touched) {
-        const rid = tripToRoute.get(String(tid));
-        if (rid != null && rid !== "") {
-          routesSet.add(String(rid));
-        }
-      }
-
-      // Stable ordering for nicer diffs
-      return Array.from(routesSet).sort();
-    })();
 
     await fs.mkdir(OUT_DIR, { recursive: true });
     const outZip = new JSZip();
@@ -831,14 +827,18 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       drop_off_type: st.drop_off_type ?? 0
     })), ["trip_id","arrival_time","departure_time","stop_id","stop_sequence","pickup_type","drop_off_type"]));
 
-    const blob = await outZip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 9 } });
+    // Build ZIP buffer (this was missing in your current file)
+    const blob = await outZip.generateAsync({
+      type: "nodebuffer",
+      compression: "DEFLATE",
+      compressionOptions: { level: 9 },
+    });
 
     const outPath = path.join(OUT_DIR, OUT_ZIP);
     await fs.writeFile(outPath, blob);
     console.log("Wrote:", outPath);
 
-
-        // NEW: write gtfs_rules file based on affected routes
+    // NEW: write gtfs_rules file based on affected routes
     try {
       // Allow overriding the feed name used in the rule file; fallback to slug.
       const ruleFeedName = process.env.RULE_FEED_NAME || SLUG;
@@ -847,9 +847,9 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       rulesLines.push(`| feed(name == "${ruleFeedName}")`);
       rulesLines.push("{");
 
-      if (affectedRouteIds.length) {
+      if (routesAffected.length) {
         rulesLines.push("    - route(");
-        affectedRouteIds.forEach((rid, idx) => {
+        routesAffected.forEach((rid, idx) => {
           const prefix = idx === 0 ? "        " : "        && ";
           rulesLines.push(`${prefix}id != "${rid}"`);
         });
@@ -867,7 +867,6 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     } catch (err) {
       console.error("Failed to write gtfs_rules file:", err?.message || err);
     }
-    
 
     const report = {
       feed: SLUG,
@@ -881,8 +880,8 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
 
       // NEW: routes affected by overrides / OD split
       routes: {
-        affectedCount: affectedRouteIds.length,
-        affectedRouteIds,
+        affectedCount: routesAffected.length,
+        affectedRouteIds: routesAffected,
       },
 
       missing: METRICS.missing,
@@ -890,7 +889,10 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       generatedAt: new Date().toISOString(),
       source: sourceDescriptor,
       overridesSource: effectiveOverridesSource || "",
-      artifacts: { zip: path.join(OUT_DIR, OUT_ZIP) },
+      artifacts: {
+        zip: path.join(OUT_DIR, OUT_ZIP),
+        gtfs_rules: path.join(OUT_DIR, "gtfs_rules"),
+      },
 
       // debug info
       debug: {
