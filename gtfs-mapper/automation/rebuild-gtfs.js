@@ -760,6 +760,27 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
         drop_off_type: st.drop_off_type,
       }));
 
+    // NEW: compute affected route_ids based on touched trips
+    const affectedRouteIds = (() => {
+      // Map original trip_id -> route_id from the input trips table
+      const tripToRoute = new Map();
+      for (const tr of trips || []) {
+        if (!tr || !tr.trip_id) continue;
+        tripToRoute.set(String(tr.trip_id), tr.route_id);
+      }
+
+      const routesSet = new Set();
+      for (const tid of METRICS.trips.touched) {
+        const rid = tripToRoute.get(String(tid));
+        if (rid != null && rid !== "") {
+          routesSet.add(String(rid));
+        }
+      }
+
+      // Stable ordering for nicer diffs
+      return Array.from(routesSet).sort();
+    })();
+
     await fs.mkdir(OUT_DIR, { recursive: true });
     const outZip = new JSZip();
 
@@ -814,13 +835,24 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
     const outPath = path.join(OUT_DIR, OUT_ZIP);
     await fs.writeFile(outPath, blob);
     console.log("Wrote:", outPath);
+    
 
     const report = {
       feed: SLUG,
       overrides: METRICS.overrides,
-      trips: { touchedCount: METRICS.trips.touched.size, createdSegments: METRICS.trips.createdSegments },
+      trips: {
+        touchedCount: METRICS.trips.touched.size,
+        createdSegments: METRICS.trips.createdSegments,
+      },
       stops: { touchedCount: METRICS.stops.touched.size },
       stopTimes: METRICS.stopTimes,
+
+      // NEW: routes affected by any override / OD split
+      routes: {
+        affectedCount: affectedRouteIds.length,
+        affectedRouteIds,
+      },
+
       missing: METRICS.missing,
       warnings: METRICS.warnings,
       generatedAt: new Date().toISOString(),
@@ -847,6 +879,7 @@ function compileTripsWithOD({ trips, stop_times }, restrictions) {
       `=== GTFS Rebuild — ${SLUG} ===`,
       `Overrides: total=${report.overrides.total}  (pickup=${report.overrides.byMode.pickup || 0}, dropoff=${report.overrides.byMode.dropoff || 0}, custom=${report.overrides.byMode.custom || 0})`,
       `Trips: touched=${report.trips.touchedCount}, createdSegments=${report.trips.createdSegments}`,
+      `Routes: affected=${report.routes.affectedCount}`,
       `Stops: touched=${report.stops.touchedCount}`,
       `StopTimes: modified=${report.stopTimes.modified}, added=${report.stopTimes.added}, deleted=${report.stopTimes.deleted}`,
       `Missing pairs ignored: ${report.missing.tripStopPairs}`,
