@@ -207,7 +207,18 @@ jobs:
           # 5: COUNTRIES           (comma-separated, from autoBorderOverrides.countries)
           # 6: TZ_MAP_JSON         (JSON string of timezonesByCountry)
           # 7: BORDER_ENABLED      ("1" if autoBorderOverrides.enabled, else "")
-          while IFS=$'\t' read -r SLUG URL LOCAL_PATH AUTO_FLAG COUNTRIES TZ_MAP_JSON BORDER_ENABLED; do
+          while IFS= read -r LINE; do
+            # Skip completely empty lines
+            [ -z "${LINE}" ] && continue
+
+            SLUG=$(printf '%s\n' "$LINE" | cut -f1)
+            URL=$(printf '%s\n' "$LINE" | cut -f2)
+            LOCAL_PATH=$(printf '%s\n' "$LINE" | cut -f3)
+            AUTO_FLAG=$(printf '%s\n' "$LINE" | cut -f4)
+            COUNTRIES=$(printf '%s\n' "$LINE" | cut -f5)
+            TZ_MAP_JSON=$(printf '%s\n' "$LINE" | cut -f6)
+            BORDER_ENABLED=$(printf '%s\n' "$LINE" | cut -f7)
+
             [ -z "${SLUG:-}" ] && continue
 
             # --- NORMALISE SENTINEL VALUES FROM feeds.json / admin UI ---
