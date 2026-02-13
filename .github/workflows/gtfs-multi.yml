@@ -116,11 +116,9 @@ jobs:
               const hasCountries =
                 Array.isArray(abo.countries) && abo.countries.length > 0;
 
-              // Border is considered enabled if either:
-              // - the explicit flag is true, OR
-              // - there are countries listed (your intuitive expectation)
-              const autoBorderEnabled =
-                !!abo.enabled || hasCountries;
+              // Border mode is enabled ONLY when the explicit flag is true.
+              // Countries can be preconfigured without auto mode being active.
+              const autoBorderEnabled = !!abo.enabled;
 
               return {
                 slug: x.slug,
