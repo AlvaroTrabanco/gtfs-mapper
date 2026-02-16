@@ -26,7 +26,18 @@
     "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/fr-ile-de-france-blablacar-bus-gtfs-1314.zip?alt=media",
     "localPath": "",
     "sourceType": "url",
-    "autoSpanishOverrides": true
+    "autoSpanishOverrides": true,
+    "autoBorderOverrides": {
+      "enabled": true,
+      "countries": [
+        "ES",
+        "CH"
+      ],
+      "timezonesByCountry": {
+        "ES": [],
+        "CH": []
+      }
+    }
   },
   {
     "slug": "alsa",
