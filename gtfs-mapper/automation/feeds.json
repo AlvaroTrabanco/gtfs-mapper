@@ -8,21 +8,36 @@
     "autoBorderOverrides": {
       "enabled": true,
       "countries": [
-        "CH"
+        "CH",
+        "ES"
       ],
       "timezonesByCountry": {
         "CH": [
           "Europe/Zurich"
+        ],
+        "ES": [
+          "Europe/Madrid"
         ]
       }
     }
   },
   {
     "slug": "ouibus",
-    "url": "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/fr-ile-de-france-blablacar-bus-gtfs-1314.zip?alt=media",
+    "url": "https://www.data.gouv.fr/api/1/datasets/r/fd54f81f-4389-4e73-be75-491133d011c3",
     "localPath": "",
     "sourceType": "url",
-    "autoSpanishOverrides": true
+    "autoSpanishOverrides": true,
+    "autoBorderOverrides": {
+      "enabled": true,
+      "countries": [
+        "ES",
+        "CH"
+      ],
+      "timezonesByCountry": {
+        "ES": [],
+        "CH": []
+      }
+    }
   },
   {
     "slug": "alsa",
