@@ -1209,6 +1209,7 @@ export default function App() {
   }]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [stopTimes, setStopTimes] = useState<StopTime[]>([]);
+  const [stopTimesAllVersion, setStopTimesAllVersion] = useState(0);
   const [shapePts, setShapePts] = useState<ShapePt[]>([]);
   const stopTimesAllRef = useRef<StopTime[] | null>(null);
   const stopsById = useMemo(() => {
@@ -2839,11 +2840,13 @@ const routePolylines = useMemo(() => {
               pickup_type: r.pickup_type != null && r.pickup_type !== "" ? Number(r.pickup_type) : undefined,
               drop_off_type: r.drop_off_type != null && r.drop_off_type !== "" ? Number(r.drop_off_type) : undefined,
             }));
-            // keep UI lean until a route is selected
+            // Clear UI slice; it will be lazily rehydrated for the active route
             setStopTimes([]);
+            setStopTimesAllVersion(v => v + 1);
           } else {
             stopTimesAllRef.current = null;
             setStopTimes([]);
+            setStopTimesAllVersion(v => v + 1);
           }
 
           (() => {
@@ -4643,7 +4646,7 @@ useEffect(() => {
   } else {
     setTimeout(run, 0);
   }
-}, [selectedRouteId, selectedRouteIds, trips]); 
+}, [selectedRouteId, selectedRouteIds, trips, stopTimesAllVersion]);
 
 const rulesFingerprint = useMemo(() => {
    const r = (project?.extras?.restrictions ?? {}) as Record<string, any>;
