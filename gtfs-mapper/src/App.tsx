@@ -5108,14 +5108,14 @@ const rulesFingerprint = useMemo(() => {
 
               {/* basemap tiles */}
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                attribution="© OpenStreetMap contributors © CARTO"
+                url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution="© OpenStreetMap contributors"
                 tileSize={256}
                 detectRetina={false}
                 keepBuffer={2}
                 updateWhenZooming={false}
                 updateWhenIdle={true}
-                maxNativeZoom={17}
+                maxNativeZoom={19}
               />
 
               {/* vector panes (stacking) */}
