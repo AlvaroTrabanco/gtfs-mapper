@@ -836,7 +836,53 @@ function PatternServiceCalendar({
   }
 
   const futureCount = sortedOperatingDates.filter(d => d >= todayYmd).length;
+  const operatingMonths = useMemo(() => {
+    return Array.from(
+      new Set(
+        sortedOperatingDates.map(ymd => ymd.slice(0, 6)) // YYYYMM
+      )
+    ).sort();
+  }, [sortedOperatingDates]);
 
+  const visibleMonthKey =
+    `${visibleMonth.getFullYear()}${String(visibleMonth.getMonth() + 1).padStart(2, "0")}`;
+
+  const previousOperatingMonth = (() => {
+    const earlier = operatingMonths.filter(m => m < visibleMonthKey);
+    return earlier.length ? earlier[earlier.length - 1] : null;
+  })();
+
+  const nextOperatingMonth = (() => {
+    return operatingMonths.find(m => m > visibleMonthKey) ?? null;
+  })();
+
+  const firstOperatingDate =
+    sortedOperatingDates.length > 0
+      ? sortedOperatingDates[0]
+      : null;
+
+  const lastOperatingDate =
+    sortedOperatingDates.length > 0
+      ? sortedOperatingDates[sortedOperatingDates.length - 1]
+      : null;
+
+  const jumpToOperatingMonth = (monthKey: string | null) => {
+    if (!monthKey || !/^\d{6}$/.test(monthKey)) return;
+
+    const year = Number(monthKey.slice(0, 4));
+    const month = Number(monthKey.slice(4, 6)) - 1;
+
+    setVisibleMonth(new Date(year, month, 1));
+  };
+
+  const jumpToOperatingDate = (ymd: string | null) => {
+    const d = parseYmd(ymd ?? undefined);
+    if (!d) return;
+
+    setVisibleMonth(
+      new Date(d.getFullYear(), d.getMonth(), 1)
+    );
+  };
   return (
     <>
       <button
@@ -1080,66 +1126,182 @@ function PatternServiceCalendar({
                   alignItems: "center",
                   marginTop: 12,
                   fontSize: 11,
-                  opacity: 0.75,
                 }}
               >
-                <span
+                {/* Legend */}
+                <div
                   style={{
-                    display: "inline-flex",
+                    display: "flex",
+                    gap: 14,
                     alignItems: "center",
-                    gap: 5,
+                    opacity: 0.75,
                   }}
                 >
                   <span
                     style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: 3,
-                      background: "#dcfce7",
-                      border: "1px solid #86efac",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
                     }}
-                  />
-                  Runs
-                </span>
+                  >
+                    <span
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 3,
+                        background: "#dcfce7",
+                        border: "1px solid #86efac",
+                      }}
+                    />
+                    Runs
+                  </span>
 
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5,
-                  }}
-                >
                   <span
                     style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: 3,
-                      border: "2px solid #df007d",
-                      boxSizing: "border-box",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
                     }}
-                  />
-                  Today
-                </span>
+                  >
+                    <span
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 3,
+                        border: "2px solid #df007d",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    Today
+                  </span>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    setVisibleMonth(
-                      new Date(today.getFullYear(), today.getMonth(), 1)
-                    )
-                  }
+                {/* Navigation shortcuts */}
+                <div
                   style={{
                     marginLeft: "auto",
-                    fontSize: 11,
-                    border: "1px solid #ddd",
-                    background: "#fff",
-                    borderRadius: 6,
-                    padding: "4px 8px",
-                    cursor: "pointer",
+                    display: "flex",
+                    gap: 5,
+                    alignItems: "center",
                   }}
                 >
-                  Today
-                </button>
+                  {/* First operating date */}
+                  <button
+                    type="button"
+                    disabled={!firstOperatingDate}
+                    onClick={() => jumpToOperatingDate(firstOperatingDate)}
+                    title={
+                      firstOperatingDate
+                        ? `First operating date: ${
+                            parseYmd(firstOperatingDate)?.toLocaleDateString() ?? firstOperatingDate
+                          }`
+                        : "No operating dates"
+                    }
+                    style={{
+                      fontSize: 13,
+                      border: "1px solid #ddd",
+                      background: "#fff",
+                      borderRadius: 6,
+                      padding: "4px 7px",
+                      cursor: firstOperatingDate ? "pointer" : "not-allowed",
+                      opacity: firstOperatingDate ? 1 : 0.35,
+                    }}
+                  >
+                    |‹
+                  </button>
+
+                  {/* Previous month containing service */}
+                  <button
+                    type="button"
+                    disabled={!previousOperatingMonth}
+                    onClick={() => jumpToOperatingMonth(previousOperatingMonth)}
+                    title={
+                      previousOperatingMonth
+                        ? "Previous month with operating trips"
+                        : "No earlier month with operating trips"
+                    }
+                    style={{
+                      fontSize: 13,
+                      border: "1px solid #ddd",
+                      background: "#fff",
+                      borderRadius: 6,
+                      padding: "4px 7px",
+                      cursor: previousOperatingMonth ? "pointer" : "not-allowed",
+                      opacity: previousOperatingMonth ? 1 : 0.35,
+                    }}
+                  >
+                    ‹
+                  </button>
+
+                  {/* Today */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisibleMonth(
+                        new Date(today.getFullYear(), today.getMonth(), 1)
+                      )
+                    }
+                    title="Go to current month"
+                    style={{
+                      fontSize: 11,
+                      border: "1px solid #ddd",
+                      background: "#fff",
+                      borderRadius: 6,
+                      padding: "4px 8px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Today
+                  </button>
+
+                  {/* Next month containing service */}
+                  <button
+                    type="button"
+                    disabled={!nextOperatingMonth}
+                    onClick={() => jumpToOperatingMonth(nextOperatingMonth)}
+                    title={
+                      nextOperatingMonth
+                        ? "Next month with operating trips"
+                        : "No later month with operating trips"
+                    }
+                    style={{
+                      fontSize: 13,
+                      border: "1px solid #ddd",
+                      background: "#fff",
+                      borderRadius: 6,
+                      padding: "4px 7px",
+                      cursor: nextOperatingMonth ? "pointer" : "not-allowed",
+                      opacity: nextOperatingMonth ? 1 : 0.35,
+                    }}
+                  >
+                    ›
+                  </button>
+
+                  {/* Last operating date */}
+                  <button
+                    type="button"
+                    disabled={!lastOperatingDate}
+                    onClick={() => jumpToOperatingDate(lastOperatingDate)}
+                    title={
+                      lastOperatingDate
+                        ? `Last operating date: ${
+                            parseYmd(lastOperatingDate)?.toLocaleDateString() ?? lastOperatingDate
+                          }`
+                        : "No operating dates"
+                    }
+                    style={{
+                      fontSize: 13,
+                      border: "1px solid #ddd",
+                      background: "#fff",
+                      borderRadius: 6,
+                      padding: "4px 7px",
+                      cursor: lastOperatingDate ? "pointer" : "not-allowed",
+                      opacity: lastOperatingDate ? 1 : 0.35,
+                    }}
+                  >
+                    ›|
+                  </button>
+                </div>
               </div>
             </div>
           </div>,
