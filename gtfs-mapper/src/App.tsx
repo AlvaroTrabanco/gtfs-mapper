@@ -63,6 +63,11 @@ type Service = {
   monday: number; tuesday: number; wednesday: number; thursday: number; friday: number; saturday: number; sunday: number;
   start_date: string; end_date: string;
 };
+type CalendarDate = {
+  service_id: string;
+  date: string;
+  exception_type: number;
+};
 type Trip = {
   route_id: string;
   service_id: string;
@@ -1207,6 +1212,7 @@ export default function App() {
     start_date: toYYYYMMDD(new Date()),
     end_date: toYYYYMMDD(new Date(new Date().setFullYear(new Date().getFullYear() + 1))),
   }]);
+  const [calendarDates, setCalendarDates] = useState<CalendarDate[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [stopTimes, setStopTimes] = useState<StopTime[]>([]);
   const [stopTimesAllVersion, setStopTimesAllVersion] = useState(0);
@@ -2058,6 +2064,32 @@ const addServiceRow = () => {
   setServices(prev => [...prev, row]);
   calendarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 };
+const addCalendarDateRow = () => {
+  const selectedServiceId =
+    selectedRouteId
+      ? trips.find(t => t.route_id === selectedRouteId)?.service_id
+      : undefined;
+
+  const serviceId =
+    selectedServiceId ??
+    services[0]?.service_id ??
+    calendarDates[0]?.service_id ??
+    trips[0]?.service_id ??
+    "SVC_1";
+
+  const row: CalendarDate = {
+    service_id: serviceId,
+    date: toYYYYMMDD(new Date()),
+    exception_type: 1,
+  };
+
+  setCalendarDates(prev => [...prev, row]);
+
+  calendarDatesRef.current?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+};
 
 const addTripRow = () => {
   // Prefer the currently selected route; otherwise first available
@@ -2070,7 +2102,10 @@ const addTripRow = () => {
   const tid = nextId("T_", trips.map(t => t.trip_id));
   const row: Trip = {
     route_id: rid,
-    service_id: services[0]?.service_id ?? "WKDY",
+    service_id:
+      services[0]?.service_id ??
+      calendarDates[0]?.service_id ??
+      "WKDY",
     trip_id: tid,
     trip_headsign: "",
     shape_id: "",
@@ -2468,6 +2503,7 @@ const routePolylines = useMemo(() => {
         stops: safeArr(stops),
         routes: safeArr(routes),
         services: safeArr(services),
+        calendarDates: safeArr(calendarDates),
         trips: safeArr(trips),
         stopTimes: safeArr(stopTimes),
         shapePts: safeArr(shapePts),
@@ -2529,6 +2565,7 @@ const routePolylines = useMemo(() => {
     stops,
     routes,
     services,
+    calendarDates,
     trips,
     stopTimes,
     shapePts,
@@ -2554,6 +2591,7 @@ const routePolylines = useMemo(() => {
         setStops((obj.stops ?? []).map((s: any) => ({ uid: s.uid || uuidv4(), ...s })));
         setRoutes(obj.routes ?? []);
         setServices(obj.services ?? []);
+        setCalendarDates(obj.calendarDates ?? []);
         setTrips(obj.trips ?? []);
         setStopTimes(obj.stopTimes ?? []);
         setShapePts(obj.shapePts ?? []);
@@ -2742,11 +2780,19 @@ const routePolylines = useMemo(() => {
         }
 
         // Parse small tables together, big ones sequentially to keep memory stable
-        const [agenciesRaw, stopsRaw, routesRaw, servicesRaw, tripsRaw] = await Promise.all([
+        const [
+          agenciesRaw,
+          stopsRaw,
+          routesRaw,
+          servicesRaw,
+          calendarDatesRaw,
+          tripsRaw
+        ] = await Promise.all([
           parseZipCsv<any>("agency"),
           parseZipCsv<any>("stops"),
           parseZipCsv<any>("routes"),
           parseZipCsv<any>("calendar"),
+          parseZipCsv<any>("calendar_dates"),
           parseZipCsv<any>("trips"),
         ]);
 
@@ -2798,22 +2844,28 @@ const routePolylines = useMemo(() => {
             );
           }
 
-          if (servicesRaw.length) {
-            setServices(
-              servicesRaw.map((r: any) => ({
-                service_id: String(r.service_id ?? ""),
-                monday: Number(r.monday ?? 0),
-                tuesday: Number(r.tuesday ?? 0),
-                wednesday: Number(r.wednesday ?? 0),
-                thursday: Number(r.thursday ?? 0),
-                friday: Number(r.friday ?? 0),
-                saturday: Number(r.saturday ?? 0),
-                sunday: Number(r.sunday ?? 0),
-                start_date: String(r.start_date ?? ""),
-                end_date: String(r.end_date ?? ""),
-              }))
-            );
-          }
+          setServices(
+            servicesRaw.map((r: any) => ({
+              service_id: String(r.service_id ?? ""),
+              monday: Number(r.monday ?? 0),
+              tuesday: Number(r.tuesday ?? 0),
+              wednesday: Number(r.wednesday ?? 0),
+              thursday: Number(r.thursday ?? 0),
+              friday: Number(r.friday ?? 0),
+              saturday: Number(r.saturday ?? 0),
+              sunday: Number(r.sunday ?? 0),
+              start_date: String(r.start_date ?? ""),
+              end_date: String(r.end_date ?? ""),
+            }))
+          );
+
+          setCalendarDates(
+            calendarDatesRaw.map((r: any) => ({
+              service_id: String(r.service_id ?? ""),
+              date: String(r.date ?? ""),
+              exception_type: Number(r.exception_type ?? 1),
+            }))
+          );
 
           if (tripsRaw.length) {
             setTrips(
@@ -3174,6 +3226,14 @@ const routePolylines = useMemo(() => {
     [services, scopedKeep]
   );
 
+  const calendarDatesScoped = useMemo(
+    () =>
+      scopedKeep
+        ? calendarDates.filter(d => scopedKeep.keepSvcIds.has(d.service_id))
+        : calendarDates,
+    [calendarDates, scopedKeep]
+  );
+
   const shapePtsScoped = useMemo(
     () => (scopedKeep ? shapePts.filter(p => scopedKeep.keepShapeIds.has(p.shape_id)) : shapePts),
     [shapePts, scopedKeep]
@@ -3366,7 +3426,14 @@ const routePolylines = useMemo(() => {
 
   const resetAll = () => {
     if (!confirm("Reset project?")) return;
-    setAgencies([]); setStops([]); setRoutes([]); setServices([]); setTrips([]); setStopTimes([]); setShapePts([]);
+    setAgencies([]);
+    setStops([]);
+    setRoutes([]);
+    setServices([]);
+    setCalendarDates([]);
+    setTrips([]);
+    setStopTimes([]);
+    setShapePts([]);
     localStorage.removeItem(STORAGE_KEY);
     setSelectedRouteId(null);
     setSelectedRouteIds(new Set());
@@ -3600,8 +3667,9 @@ const routesTableRef = useRef<HTMLDivElement | null>(null);
 const tripsTableRef  = useRef<HTMLDivElement | null>(null);
 const agenciesRef    = useRef<HTMLDivElement | null>(null);
 const stopsRef       = useRef<HTMLDivElement | null>(null);
-const calendarRef    = useRef<HTMLDivElement | null>(null);
-const stopTimesRef   = useRef<HTMLDivElement | null>(null);
+const calendarRef      = useRef<HTMLDivElement | null>(null);
+const calendarDatesRef = useRef<HTMLDivElement | null>(null);
+const stopTimesRef     = useRef<HTMLDivElement | null>(null);
 const shapesRef      = useRef<HTMLDivElement | null>(null);
   // Stash original CSV text for lazy hydration at export time
 const rawCsvRef = useRef<{ stop_times?: string; shapes?: string }>({});
@@ -3615,7 +3683,10 @@ const createTripForSelectedRoute = () => {
   const tid = nextId("T_", trips.map(t => t.trip_id));
   const newTrip: Trip = {
     route_id: selectedRouteId,
-    service_id: (services[0]?.service_id ?? "WKDY"),
+    service_id:
+      services[0]?.service_id ??
+      calendarDates[0]?.service_id ??
+      "WKDY",
     trip_id: tid,
     trip_headsign: "",
     shape_id: "",       // optional; you can assign later
@@ -3913,13 +3984,41 @@ const createTripForSelectedRoute = () => {
     );
 
     const servicesOut = services.filter(s => keepSvcIds.has(s.service_id));
-    zip.file(
-      "calendar.txt",
-      csvify(
-        servicesOut,
-        ["service_id","monday","tuesday","wednesday","thursday","friday","saturday","sunday","start_date","end_date"]
-      )
+
+    if (servicesOut.length) {
+      zip.file(
+        "calendar.txt",
+        csvify(
+          servicesOut,
+          [
+            "service_id",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+            "start_date",
+            "end_date"
+          ]
+        )
+      );
+    }
+
+    const calendarDatesOut = calendarDates.filter(d =>
+      keepSvcIds.has(d.service_id)
     );
+
+    if (calendarDatesOut.length) {
+      zip.file(
+        "calendar_dates.txt",
+        csvify(
+          calendarDatesOut,
+          ["service_id", "date", "exception_type"]
+        )
+      );
+    }
 
     const stopsOut = stops.filter(s => keepStopIds.has(s.stop_id));
     zip.file(
@@ -5530,6 +5629,50 @@ const rulesFingerprint = useMemo(() => {
             }}
             onAddRow={addServiceRow}
             addRowLabel="Add service"
+          />
+        </div>
+        <div ref={calendarDatesRef}>
+          <PaginatedEditableTable
+            title="calendar_dates.txt"
+            rows={calendarDatesScoped}
+            onChange={(next) => {
+              const normalized = next.map((r: any) => ({
+                service_id: String(r.service_id ?? ""),
+                date: String(r.date ?? ""),
+                exception_type: Number(r.exception_type ?? 1),
+              }));
+
+              if (!scopedKeep) {
+                setCalendarDates(normalized);
+                return;
+              }
+
+              setCalendarDates(prev => {
+                const untouched = prev.filter(
+                  d => !scopedKeep.keepSvcIds.has(d.service_id)
+                );
+
+                return [...untouched, ...normalized];
+              });
+            }}
+            initialPageSize={5}
+            onDeleteRow={(row: any) => {
+              setCalendarDates(prev => {
+                const idx = prev.findIndex(d =>
+                  d.service_id === row.service_id &&
+                  d.date === row.date &&
+                  Number(d.exception_type) === Number(row.exception_type)
+                );
+
+                if (idx === -1) return prev;
+
+                const next = prev.slice();
+                next.splice(idx, 1);
+                return next;
+              });
+            }}
+            onAddRow={addCalendarDateRow}
+            addRowLabel="Add calendar date"
           />
         </div>
         <div ref={stopTimesRef}>
