@@ -49,6 +49,12 @@ type Service = {
   start_date?: string; end_date?: string;
 };
 
+type CalendarDate = {
+  service_id: string;
+  date: string;
+  exception_type: number;
+};
+
 type Stop = {
   stop_id: string;
   stop_name: string;
@@ -97,6 +103,7 @@ const keyTS = (trip_id: string, stop_id: string) => `${trip_id}::${stop_id}`;
 type PatternMatrixProps = {
   stops: Stop[];
   services: Service[];
+  calendarDates: CalendarDate[];
   trips: Trip[];
   stopTimes: StopTime[];
   selectedRouteId?: string | null;
@@ -608,9 +615,543 @@ function StopBulkRuleEditor({
   );
 }
 
+/* ---------------- Pattern service calendar ---------------- */
+
+function parseYmd(value?: string): Date | null {
+  if (!value || !/^\d{8}$/.test(value)) return null;
+
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(4, 6)) - 1;
+  const day = Number(value.slice(6, 8));
+
+  const d = new Date(year, month, day);
+
+  if (
+    d.getFullYear() !== year ||
+    d.getMonth() !== month ||
+    d.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return d;
+}
+
+function dateToYmd(d: Date): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("");
+}
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function buildOperatingDatesForTrips(
+  groupTrips: Trip[],
+  services: Service[],
+  calendarDates: CalendarDate[]
+): Set<string> {
+  const relevantServiceIds = new Set(
+    groupTrips
+      .map(t => String(t.service_id ?? ""))
+      .filter(Boolean)
+  );
+
+  /*
+   * Keep each service separate while applying exceptions.
+   * This matters because:
+   *
+   * - service A may be removed on a date
+   * - service B may still run on that same date
+   *
+   * The pattern therefore still operates that day.
+   */
+  const datesByService = new Map<string, Set<string>>();
+
+  for (const serviceId of relevantServiceIds) {
+    datesByService.set(serviceId, new Set());
+  }
+
+  const weekdayFields: Array<keyof Service> = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+
+  for (const svc of services) {
+    if (!relevantServiceIds.has(svc.service_id)) continue;
+
+    const activeDates =
+      datesByService.get(svc.service_id) ?? new Set<string>();
+
+    datesByService.set(svc.service_id, activeDates);
+
+    const start = parseYmd(svc.start_date);
+    const end = parseYmd(svc.end_date);
+
+    if (!start || !end || start > end) continue;
+
+    const cursor = new Date(start);
+
+    while (cursor <= end) {
+      const weekdayField = weekdayFields[cursor.getDay()];
+      const operates = Number(svc[weekdayField] ?? 0) === 1;
+
+      if (operates) {
+        activeDates.add(dateToYmd(cursor));
+      }
+
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  // calendar_dates overrides calendar.txt for each individual service
+  for (const exception of calendarDates) {
+    if (!relevantServiceIds.has(exception.service_id)) continue;
+    if (!/^\d{8}$/.test(String(exception.date ?? ""))) continue;
+
+    const activeDates =
+      datesByService.get(exception.service_id) ?? new Set<string>();
+
+    datesByService.set(exception.service_id, activeDates);
+
+    if (Number(exception.exception_type) === 1) {
+      activeDates.add(exception.date);
+    } else if (Number(exception.exception_type) === 2) {
+      activeDates.delete(exception.date);
+    }
+  }
+
+  // Union all services used by trips in this particular pattern
+  const result = new Set<string>();
+
+  for (const dates of datesByService.values()) {
+    for (const date of dates) result.add(date);
+  }
+
+  return result;
+}
+
+function PatternServiceCalendar({
+  trips,
+  services,
+  calendarDates,
+}: {
+  trips: Trip[];
+  services: Service[];
+  calendarDates: CalendarDate[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  const operatingDates = useMemo(
+    () => buildOperatingDatesForTrips(trips, services, calendarDates),
+    [trips, services, calendarDates]
+  );
+
+  const sortedOperatingDates = useMemo(
+    () => Array.from(operatingDates).sort(),
+    [operatingDates]
+  );
+
+  /*
+   * When opening:
+   * 1. If today operates, show this month.
+   * 2. Otherwise find the next operating date in the future and jump to it.
+   * 3. If there is no future service, show the most recent operating month.
+   * 4. If there are no dates at all, show the current month.
+   */
+  const bestInitialMonth = () => {
+    const today = startOfDay(new Date());
+    const todayYmd = dateToYmd(today);
+
+    const nextDateYmd =
+      sortedOperatingDates.find(d => d >= todayYmd) ??
+      sortedOperatingDates[sortedOperatingDates.length - 1];
+
+    const target = parseYmd(nextDateYmd);
+
+    return target
+      ? new Date(target.getFullYear(), target.getMonth(), 1)
+      : new Date(today.getFullYear(), today.getMonth(), 1);
+  };
+
+  const [visibleMonth, setVisibleMonth] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  const openCalendar = () => {
+    setVisibleMonth(bestInitialMonth());
+    setOpen(true);
+  };
+
+  const moveMonth = (delta: number) => {
+    setVisibleMonth(prev =>
+      new Date(prev.getFullYear(), prev.getMonth() + delta, 1)
+    );
+  };
+
+  const moveYear = (delta: number) => {
+    setVisibleMonth(prev =>
+      new Date(prev.getFullYear() + delta, prev.getMonth(), 1)
+    );
+  };
+
+  const today = startOfDay(new Date());
+  const todayYmd = dateToYmd(today);
+
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+
+  const monthName = visibleMonth.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+
+  // Monday-first calendar
+  const firstDay = new Date(year, month, 1);
+  const mondayOffset = (firstDay.getDay() + 6) % 7;
+
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells: Array<Date | null> = [];
+
+  for (let i = 0; i < mondayOffset; i++) {
+    cells.push(null);
+  }
+
+  for (let day = 1; day <= lastDayOfMonth; day++) {
+    cells.push(new Date(year, month, day));
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push(null);
+  }
+
+  const futureCount = sortedOperatingDates.filter(d => d >= todayYmd).length;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openCalendar}
+        title="Show operating calendar for this pattern"
+        style={{
+          fontSize: 12,
+          padding: "4px 9px",
+          border: "1px solid #ddd",
+          background: "#fff",
+          borderRadius: 6,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Calendar
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Operating calendar"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setOpen(false);
+            }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 300000,
+              background: "rgba(0,0,0,.35)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+            }}
+          >
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                width: "min(520px, calc(100vw - 32px))",
+                background: "#fff",
+                borderRadius: 12,
+                boxShadow: "0 20px 60px rgba(0,0,0,.25)",
+                padding: 16,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 14,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>
+                    Operating calendar
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 2,
+                      fontSize: 11,
+                      opacity: 0.65,
+                    }}
+                  >
+                    {operatingDates.size
+                      ? `${operatingDates.size} operating day${operatingDates.size === 1 ? "" : "s"}`
+                      : "No operating dates found"}
+                    {futureCount > 0
+                      ? ` · ${futureCount} from today onwards`
+                      : ""}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  title="Close"
+                  style={{
+                    marginLeft: "auto",
+                    border: "none",
+                    background: "transparent",
+                    fontSize: 20,
+                    cursor: "pointer",
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginBottom: 12,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => moveYear(-1)}
+                  title="Previous year"
+                  style={{
+                    border: "1px solid #ddd",
+                    background: "#fff",
+                    borderRadius: 6,
+                    padding: "5px 8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  «
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => moveMonth(-1)}
+                  title="Previous month"
+                  style={{
+                    border: "1px solid #ddd",
+                    background: "#fff",
+                    borderRadius: 6,
+                    padding: "5px 8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  ‹
+                </button>
+
+                <div
+                  style={{
+                    flex: 1,
+                    textAlign: "center",
+                    fontWeight: 700,
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {monthName}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => moveMonth(1)}
+                  title="Next month"
+                  style={{
+                    border: "1px solid #ddd",
+                    background: "#fff",
+                    borderRadius: 6,
+                    padding: "5px 8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  ›
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => moveYear(1)}
+                  title="Next year"
+                  style={{
+                    border: "1px solid #ddd",
+                    background: "#fff",
+                    borderRadius: 6,
+                    padding: "5px 8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  »
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(7, 1fr)",
+                  gap: 4,
+                }}
+              >
+                {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day => (
+                  <div
+                    key={day}
+                    style={{
+                      textAlign: "center",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      opacity: 0.55,
+                      padding: "4px 0",
+                    }}
+                  >
+                    {day}
+                  </div>
+                ))}
+
+                {cells.map((date, index) => {
+                  if (!date) {
+                    return <div key={`empty-${index}`} />;
+                  }
+
+                  const ymd = dateToYmd(date);
+                  const operates = operatingDates.has(ymd);
+                  const isToday = ymd === todayYmd;
+
+                  return (
+                    <div
+                      key={ymd}
+                      title={
+                        operates
+                          ? `${date.toLocaleDateString()} — operates`
+                          : date.toLocaleDateString()
+                      }
+                      style={{
+                        minHeight: 44,
+                        borderRadius: 7,
+                        border: isToday
+                          ? "2px solid #df007d"
+                          : "1px solid #eee",
+                        background: operates ? "#dcfce7" : "#fff",
+                        color: operates ? "#166534" : "#333",
+                        fontWeight: operates ? 700 : 400,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 13,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      {date.getDate()}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 14,
+                  alignItems: "center",
+                  marginTop: 12,
+                  fontSize: 11,
+                  opacity: 0.75,
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 3,
+                      background: "#dcfce7",
+                      border: "1px solid #86efac",
+                    }}
+                  />
+                  Runs
+                </span>
+
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 3,
+                      border: "2px solid #df007d",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  Today
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleMonth(
+                      new Date(today.getFullYear(), today.getMonth(), 1)
+                    )
+                  }
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 11,
+                    border: "1px solid #ddd",
+                    background: "#fff",
+                    borderRadius: 6,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
 /* ---------------- Main component ---------------- */
 export default function PatternMatrix({
-  stops, services, trips, stopTimes, selectedRouteId,
+  stops, services, calendarDates, trips, stopTimes, selectedRouteId,
   onDeleteTrips,
   onShiftTripTimes,
   initialRestrictions, onRestrictionsChange,
@@ -976,14 +1517,45 @@ useEffect(() => {
         }}
       >
         <div className="card-body" style={{ overflow: "auto", position: "relative" }}>
-          <div style={{ marginBottom: 6, display: "flex", alignItems: "baseline", gap: 8 }}>
+          <div
+            style={{
+              marginBottom: 6,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
             <h3 style={{ margin: 0 }}>Summary of selected route</h3>
-            <div style={{ fontSize: 12, opacity: .75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+
+            <div
+              style={{
+                fontSize: 12,
+                opacity: .75,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                minWidth: 0,
+              }}
+            >
               {groupTitle}
             </div>
-            <div style={{ marginLeft: "auto", fontSize: 12, opacity: .7 }}>
+
+            <div
+              style={{
+                marginLeft: "auto",
+                fontSize: 12,
+                opacity: .7,
+                whiteSpace: "nowrap",
+              }}
+            >
               Trips in this pattern: {g.trips.length}
             </div>
+
+            <PatternServiceCalendar
+              trips={g.trips}
+              services={services}
+              calendarDates={calendarDates}
+            />
           </div>
 
                     {/* Group actions: select all, delete, shift */}

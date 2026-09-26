@@ -5486,6 +5486,7 @@ const rulesFingerprint = useMemo(() => {
           key={`pm-${selectedRouteId ?? 'none'}-${rulesFingerprint}`}
           stops={stops}
           services={services}
+          calendarDates={calendarDates}
           trips={tripsByRoute.get(selectedRouteId) ?? []}
           stopTimes={stopTimes.filter(st =>
             (tripsByRoute.get(selectedRouteId) ?? []).some(t => t.trip_id === st.trip_id)
