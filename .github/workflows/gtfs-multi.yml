@@ -65,6 +65,8 @@ jobs:
 
       - name: Build site per feed (download, compile with overrides, index)
         shell: bash
+        env:
+          ALSA_API_KEY: ${{ secrets.ALSA_API_KEY }}
         run: |
           set -euo pipefail
           mkdir -p site
@@ -156,24 +158,50 @@ jobs:
 
           # Helper to fetch source GTFS (kept for debugging headers)
           fetch_with_diag() {
-            local url="$1" out="$2" dir
+            local url="$1"
+            local out="$2"
+            local header_name="${3:-}"
+            local header_value="${4:-}"
+            local dir
+
             dir="$(dirname "$out")"
             mkdir -p "$dir"
+
             local hdr="$dir/headers.txt"
             local raw="$dir/download.raw"
+
             rm -f "$hdr" "$raw" "$out" "$out.part" "$dir/error.html"
 
+            # Build optional authentication header without printing its value.
+            local -a AUTH_ARGS=()
+
+            if [ -n "${header_name}" ]; then
+              if [ -z "${header_value}" ]; then
+                echo "ERROR: authentication header '${header_name}' was requested but its value is empty."
+                return 1
+              fi
+
+              AUTH_ARGS=(-H "${header_name}: ${header_value}")
+              echo "Using authenticated request header: ${header_name}"
+            fi
+
             echo "---- HEAD $url"
-            curl -sS -I -L -A "gtfs-mapper-ci" "$url" || true
+            curl -sS -I -L \
+              -A "gtfs-mapper-ci" \
+              "${AUTH_ARGS[@]}" \
+              "$url" || true
 
             echo "---- GET  $url"
             if ! curl -L -sS \
                 -H "Accept: application/zip, application/octet-stream,*/*" \
                 -A "gtfs-mapper-ci" \
+                "${AUTH_ARGS[@]}" \
                 -D "$hdr" \
                 --connect-timeout 30 \
                 --max-time 900 \
-                --retry 5 --retry-delay 5 --retry-connrefused \
+                --retry 5 \
+                --retry-delay 5 \
+                --retry-connrefused \
                 -C - \
                 -o "$raw" \
                 "$url"; then
@@ -184,10 +212,12 @@ jobs:
             # ZIP magic (PK\x03\x04) + deep validation
             if head -c 4 "$raw" | hexdump -Cv | grep -q "50 4b 03 04"; then
               mv "$raw" "$out"
+
               if ! unzip -tqq "$out" >/dev/null 2>&1; then
                 echo "Downloaded file is not a valid ZIP (unzip test failed)."
                 return 2
               fi
+
               return 0
             else
               echo "Response is not ZIP; leaving as error.html for debugging."
@@ -294,7 +324,29 @@ jobs:
               echo "::group::Downloading ${SLUG}"
               echo "URL: ${EFFECTIVE_URL}"
 
-              if fetch_with_diag "${EFFECTIVE_URL}" "site/${SLUG}/gtfs.zip"; then
+              FETCH_HEADER_NAME=""
+              FETCH_HEADER_VALUE=""
+
+              # Spanish NAP Alsa feed requires:
+              # ApiKey: <secret>
+              if [ "${SLUG}" = "alsa" ]; then
+                FETCH_HEADER_NAME="ApiKey"
+                FETCH_HEADER_VALUE="${ALSA_API_KEY:-}"
+
+                if [ -z "${FETCH_HEADER_VALUE}" ]; then
+                  echo "ERROR: GitHub Actions secret ALSA_API_KEY is not configured."
+                  any_fail=1
+                  echo "::endgroup::"
+                  continue
+                fi
+              fi
+
+              if fetch_with_diag \
+                  "${EFFECTIVE_URL}" \
+                  "site/${SLUG}/gtfs.zip" \
+                  "${FETCH_HEADER_NAME}" \
+                  "${FETCH_HEADER_VALUE}"; then
+
                 LOCAL_NOTE='<a href="gtfs.zip">Download GTFS (local)</a>'
                 du -h "site/${SLUG}/gtfs.zip" || true
               else
@@ -305,6 +357,7 @@ jobs:
                   LOCAL_NOTE='<em>Local GTFS not available — see headers.txt/download.raw</em>'
                 fi
               fi
+
               echo "::endgroup::"
             elif [ -n "${EFFECTIVE_LOCAL}" ]; then
               # LOCAL FILE MODE (no remote URL, rely on repo file)

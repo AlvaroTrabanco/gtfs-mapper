@@ -41,9 +41,9 @@
   },
   {
     "slug": "alsa",
-    "url": "",
-    "localPath": "feeds/alsa.zip",
-    "sourceType": "file",
+    "url": "https://nap.transportes.gob.es/api/Fichero/download/1133",
+    "localPath": "",
+    "sourceType": "url",
     "autoSpanishOverrides": false
   }
 ]
