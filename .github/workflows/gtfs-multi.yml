@@ -348,17 +348,20 @@ jobs:
                 "${FETCH_HEADER_VALUE}"; then
 
               LOCAL_NOTE='<a href="gtfs.zip">Download GTFS (local)</a>'
-              du -h "site/${SLUG}/gtfs.zip" || true
+                du -h "site/${SLUG}/gtfs.zip" || true
 
-              # Alsa requires an ApiKey for its remote URL.
-              # rebuild-gtfs.js does not send that header, so after downloading
-              # the fresh source here we give the builder the ZIP as a local feed.
-              if [ "${SLUG}" = "alsa" ]; then
-                mkdir -p automation/feeds
-                cp "site/${SLUG}/gtfs.zip" "automation/feeds/alsa.zip"
+                # Preserve exactly what was downloaded before compilation.
+                cp "site/${SLUG}/gtfs.zip" "site/${SLUG}/source.zip"
 
-                echo "Fresh Alsa GTFS copied to automation/feeds/alsa.zip for compilation."
-              fi
+                # Alsa requires an ApiKey for its remote URL.
+                # rebuild-gtfs.js must therefore compile the already downloaded file locally.
+                if [ "${SLUG}" = "alsa" ]; then
+                  mkdir -p automation/feeds
+                  cp "site/${SLUG}/gtfs.zip" "automation/feeds/alsa.zip"
+
+                  echo "Fresh Alsa GTFS saved as site/alsa/source.zip."
+                  echo "Fresh Alsa GTFS copied to automation/feeds/alsa.zip for compilation."
+                fi
               else
                 any_fail=1
                 if [ -f "site/${SLUG}/error.html" ]; then
@@ -477,6 +480,7 @@ jobs:
             <h1>{{TITLE}}</h1>
             <ul>
               <li><a href="compiled.zip">compiled.zip</a></li>
+              <li><a href="source.zip">source.zip (original GTFS before compilation)</a></li>
               <li><a href="gtfs_rules">gtfs_rules</a></li>
               <li><a href="'"${URL_DISPLAY//\"/&quot;}"'">Original source URL</a></li>
               <li><a href="headers.txt">Response headers</a> (debug)</li>
