@@ -1217,7 +1217,13 @@ export default function App() {
   const [stopTimes, setStopTimes] = useState<StopTime[]>([]);
   const [stopTimesAllVersion, setStopTimesAllVersion] = useState(0);
   const [shapePts, setShapePts] = useState<ShapePt[]>([]);
+
   const stopTimesAllRef = useRef<StopTime[] | null>(null);
+
+  // Tracks which route is genuinely loaded into the lazy `stopTimes` UI slice.
+  // null means the UI slice is currently empty/unhydrated and must NOT be
+  // written back over the full imported stop_times cache.
+  const hydratedStopTimesRouteRef = useRef<string | null>(null);
   const stopsById = useMemo(() => {
     const m = new Map<string, Stop>();
     for (const s of stops) m.set(s.stop_id, s);
@@ -2729,6 +2735,19 @@ const routePolylines = useMemo(() => {
     withBusy("Parsing GTFS…", async () => {
       let hadShapesInZip = false; // ← NEW: function-scope flag
       try {
+        // A newly imported feed must not inherit selection from the previous one.
+        // In particular, an old selected route must not cause the temporary
+        // empty lazy stopTimes slice to overwrite the newly imported cache.
+        setSelectedRouteId(null);
+        setSelectedRouteIds(new Set());
+        setSelectedStopId(null);
+        setSelectedStopTime(null);
+        setActiveTripIdForTimes(null);
+        setActiveServiceIds(new Set());
+
+        hydratedStopTimesRouteRef.current = null;
+
+        // Clear OD rules/defaults when importing a raw operator feed
         // Clear OD rules/defaults when importing a raw operator feed
         setProject((prev: any) => ({
           ...(prev ?? {}),
@@ -2883,19 +2902,31 @@ const routePolylines = useMemo(() => {
 
           // IMPORTANT: lazy stop_times
           if (stopTimesRaw.length) {
+            // The full file is about to be loaded into the backing cache.
+            // The UI slice itself is deliberately empty until a route is selected.
+            hydratedStopTimesRouteRef.current = null;
+
             stopTimesAllRef.current = stopTimesRaw.map((r: any) => ({
               trip_id: String(r.trip_id ?? ""),
               arrival_time: String(r.arrival_time ?? ""),
               departure_time: String(r.departure_time ?? ""),
               stop_id: String(r.stop_id ?? ""),
               stop_sequence: Number(r.stop_sequence ?? 0),
-              pickup_type: r.pickup_type != null && r.pickup_type !== "" ? Number(r.pickup_type) : undefined,
-              drop_off_type: r.drop_off_type != null && r.drop_off_type !== "" ? Number(r.drop_off_type) : undefined,
+              pickup_type:
+                r.pickup_type != null && r.pickup_type !== ""
+                  ? Number(r.pickup_type)
+                  : undefined,
+              drop_off_type:
+                r.drop_off_type != null && r.drop_off_type !== ""
+                  ? Number(r.drop_off_type)
+                  : undefined,
             }));
-            // Clear UI slice; it will be lazily rehydrated for the active route
+
+            // Keep the UI slice empty until a route is selected.
             setStopTimes([]);
             setStopTimesAllVersion(v => v + 1);
           } else {
+            hydratedStopTimesRouteRef.current = null;
             stopTimesAllRef.current = null;
             setStopTimes([]);
             setStopTimesAllVersion(v => v + 1);
@@ -3759,22 +3790,47 @@ const createTripForSelectedRoute = () => {
   const commitStopTimesEdits = useCallback(() => {
     const all = stopTimesAllRef.current;
     const rid = resolveActiveRouteId();
+
     if (!rid || !all) return;
 
-    // trips that belong to the active route
-    const tids = new Set(trips.filter(t => t.route_id === rid).map(t => t.trip_id));
+    // CRITICAL:
+    // `stopTimes` is a lazy UI slice, not always the real contents of the route.
+    //
+    // Immediately after GTFS import we intentionally do setStopTimes([]).
+    // That empty array must never be interpreted as:
+    // "the user deleted every stop_time for this route".
+    //
+    // Only write UI rows back into the full cache after this exact route
+    // has actually been hydrated from stopTimesAllRef.
+    if (hydratedStopTimesRouteRef.current !== rid) {
+      return;
+    }
+
+    const tids = new Set(
+      trips
+        .filter(t => t.route_id === rid)
+        .map(t => t.trip_id)
+    );
+
     if (!tids.size) return;
 
-    // keep all rows except those for the active route…
+    // Preserve every stop_time belonging to other routes.
     const kept = all.filter(st => !tids.has(st.trip_id));
 
-    // …and replace them with the renumbered rows currently visible in the UI
+    // Replace only this route's rows with the edited UI slice.
     const edited = renumberAllStopSequences(
-      stopTimes.filter(st => tids.has(st.trip_id)).map(r => ({ ...r }))
+      stopTimes
+        .filter(st => tids.has(st.trip_id))
+        .map(r => ({ ...r }))
     );
 
     stopTimesAllRef.current = [...kept, ...edited];
-  }, [trips, stopTimes]);
+  }, [
+    trips,
+    stopTimes,
+    selectedRouteId,
+    selectedRouteIds,
+  ]);
 
   // Whenever the user edits stop_times in the UI, merge into the full cache.
   useEffect(() => {
@@ -4735,7 +4791,14 @@ useEffect(() => {
 
   const run = () => {
     const filtered = all.filter(st => tids.has(st.trip_id));
-    startTransition(() => setStopTimes(filtered));
+
+    // From this point onwards the UI stopTimes slice genuinely represents
+    // this route, so edits may safely be merged back into the full cache.
+    hydratedStopTimesRouteRef.current = rid;
+
+    startTransition(() => {
+      setStopTimes(filtered);
+    });
   };
 
   // Do this when the browser is idle (or soon)
